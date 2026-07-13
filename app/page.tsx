@@ -33,8 +33,8 @@ export default function Home() {
   {/* Hero */}
   <section className="mx-auto max-w-7xl px-6 py-20">
 
-    <div className="max-w-3xl">
-
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+<div>
       <p className="font-semibold uppercase tracking-wider text-green-600">
         TC Cleaning Services AZ LLC
       </p>
@@ -60,14 +60,17 @@ export default function Home() {
         <button className="rounded-xl border px-6 py-3 font-semibold hover:bg-gray-100">
           Our Services
         </button>
-
+</div>
       </div>
-<img
-   src="/images/cris.png"
-    alt="Cris Cleaning"
-    className="rounded-3xl shadow-2xl"
-  />
-    </div>
+<div className="flex justify-center">
+
+    <img
+        src="/images/cris.png"
+        alt="Cris Cleaning"
+        className="rounded-3xl shadow-2xl w-full max-w-lg"
+    />
+
+</div>    </div>
 
   </section>
 
