@@ -1,66 +1,84 @@
-import Image from "next/image";
+
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            Roberto Alcaraz el mas verga is building this site for TC Cleaning Services AZ LLC!
-            tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Si yo te digo que la vamos a hacer mi {" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              palabra
-            </a>{" "}
-            pesa{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              
-            </a>{" "}
-            July 2026.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+  <main className="min-h-screen bg-white text-gray-900">
+<main className="min-h-screen bg-white text-gray-900">
+
+  {/* Navigation */}
+  <nav className="border-b">
+
+    <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+
+      <h2 className="text-xl font-bold text-green-600">
+        TC Cleaning Services AZ LLC
+      </h2>
+
+      <div className="hidden gap-8 font-medium md:flex">
+        <a href="#">Home</a>
+        <a href="#">Services</a>
+        <a href="#">Gallery</a>
+        <a href="#">Reviews</a>
+        <a href="#">Contact</a>
+      </div>
+
+      <button className="rounded-xl bg-green-600 px-5 py-3 font-semibold text-white hover:bg-green-700">
+        Free Estimate
+      </button>
+
     </div>
-  );
+
+  </nav>
+
+  {/* Hero */}
+  <section className="mx-auto max-w-7xl px-6 py-20">
+
+    <div className="max-w-3xl">
+
+      <p className="font-semibold uppercase tracking-wider text-green-600">
+        TC Cleaning Services AZ LLC
+      </p>
+
+      <h1 className="mt-4 text-5xl font-bold leading-tight">
+        Professional House Cleaning Across the East Valley
+      </h1>
+
+      <p className="mt-6 text-xl text-gray-600">
+        Residential Cleaning • Deep Cleaning • Move-Out Cleaning • Commercial Cleaning
+      </p>
+
+      <p className="mt-6 text-lg text-gray-500">
+        Trusted by homeowners throughout Mesa, Gilbert, Chandler, Tempe and Queen Creek.
+      </p>
+
+      <div className="mt-10 flex gap-4">
+
+        <button className="rounded-xl bg-green-600 px-6 py-3 font-semibold text-white hover:bg-green-700">
+          Get My Free Estimate
+        </button>
+
+        <button className="rounded-xl border px-6 py-3 font-semibold hover:bg-gray-100">
+          Our Services
+        </button>
+
+      </div>
+<img
+   src="/images/cris.png"
+    alt="Cris Cleaning"
+    className="rounded-3xl shadow-2xl"
+  />
+    </div>
+
+  </section>
+
+</main>
+    {/* Hero Section */}
+    
+<div className="flex justify-center">
+</div>
+  </main>
+)
+  
 }
+  
+
