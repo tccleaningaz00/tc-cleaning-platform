@@ -47,10 +47,25 @@ export default function Home() {
         Residential Cleaning • Deep Cleaning • Move-Out Cleaning • Commercial Cleaning
       </p>
 
-      <p className="mt-6 text-lg text-gray-500">
-        Trusted by homeowners throughout Mesa, Gilbert, Chandler, Tempe and Queen Creek.
-      </p>
+      <div className="mt-8 grid grid-cols-2 gap-4 text-gray-700">
 
+  <div className="flex items-center gap-2">
+    ⭐ <span>5.0 Google Rating</span>
+  </div>
+
+  <div className="flex items-center gap-2">
+    ✔ <span>Licensed & Insured</span>
+  </div>
+
+  <div className="flex items-center gap-2">
+    🏡 <span>Locally Owned</span>
+  </div>
+
+  <div className="flex items-center gap-2">
+    📅 <span>Flexible Scheduling</span>
+  </div>
+
+</div>
       <div className="mt-10 flex gap-4">
 
         <button className="rounded-xl bg-green-600 px-6 py-3 font-semibold text-white hover:bg-green-700">
