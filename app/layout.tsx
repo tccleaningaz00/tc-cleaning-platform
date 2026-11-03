@@ -1,20 +1,23 @@
+
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "TC Cleaning Services AZ LLC",
-  description: "Professional house cleaning services across Mesa, Gilbert, Chandler, Tempe and Queen Creek",
+  title: "TC Cleaning Services AZ LLC | Mesa & East Valley",
+  description:
+    "Professional residential, recurring, deep cleaning, and move-in/move-out cleaning services in Mesa, Gilbert, Chandler, Tempe, Queen Creek, Phoenix, and Scottsdale, Arizona.",
+  keywords: [
+    "TC Cleaning",
+    "Mesa AZ cleaning services",
+    "East Valley house cleaning",
+    "residential cleaning Arizona",
+    "deep cleaning Mesa",
+  ],
+  openGraph: {
+    title: "TC Cleaning Services AZ LLC",
+    description: "A Cleaner Home. A Better Life.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -23,11 +26,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en">
+      <body>{children}</body>
     </html>
   );
 }
