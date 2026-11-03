@@ -1,4 +1,4 @@
-
+import PriceCalculator from "./components/price-calculator";
 import Image from "next/image";
 
 const services = [
@@ -149,7 +149,7 @@ export default function Home() {
           </div>
         </div>
       </section>
-
+<PriceCalculator />
       {/* TRUST BAR */}
       <section className="trust-section">
         <div className="container trust-grid">
