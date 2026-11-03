@@ -1,6 +1,6 @@
 /**
  * Complete and approve this pricing matrix before enabling public dollar estimates.
- * Known reference: $130 per crew-hour for deep cleaning.
+ * Known reference: $135 per crew-hour for deep cleaning.
  * $135 was discussed as a proposal only and is NOT activated here.
  */
 export type ServiceType = "standard" | "deep" | "move" | "recurring";
@@ -25,7 +25,7 @@ export const PRICING_CONFIG = {
   crewHourRate: {
     standard: null as number | null,
     recurring: null as number | null,
-    deep: 130 as number | null,
+    deep: 135 as number | null,
     move: null as number | null,
   },
   // Each entry is [minimum crew-hours, maximum crew-hours].

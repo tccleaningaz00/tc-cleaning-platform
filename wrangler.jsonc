@@ -1,0 +1,12 @@
+{
+  "name": "tc-cleaning-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-03",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tc-cleaning-business-manager",
+      "database_id": "0b31980c-2cef-4b8f-879d-8571b726a644"
+    }
+  ]
+}
