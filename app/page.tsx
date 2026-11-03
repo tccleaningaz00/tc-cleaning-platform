@@ -1,3 +1,4 @@
+import GoogleReviews from "./components/google-reviews";
 import PriceCalculator from "./components/price-calculator";
 import Image from "next/image";
 
@@ -291,26 +292,7 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      {/* REVIEWS */}
-      <section className="reviews-section">
-        <div className="container reviews-inner">
-          <span className="section-label light-label">CUSTOMER TRUST</span>
-          <h2>Our Reputation Means Everything.</h2>
-          <div className="review-stars">★★★★★</div>
-          <div className="review-score">5.0 / 5.0</div>
-          <p>Google Customer Rating · 24 Reviews</p>
-          <a
-            href="https://www.google.com/search?q=TC+Cleaning+Services+AZ+LLC+Mesa"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="button button-green"
-          >
-            Find Us on Google →
-          </a>
-        </div>
-      </section>
-
+<GoogleReviews />
       {/* SERVICE AREA */}
       <section className="area-section section-padding">
         <div className="container">
