@@ -2,8 +2,8 @@
 interface Env {
   DB: D1Database;
   API_SECRET: string;
+  RESEND_API_KEY: string;
 }
-
 interface QuotePayload {
   firstName: string;
   lastName: string;
@@ -34,7 +34,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isText(value: unknown): value is string {
   return typeof value === "string";
 }
+async function sendQuoteNotification(
+  data: QuotePayload,
+  estimateId: string,
+  env: Env
+): Promise<void> {
+  const customerName =
+    `${data.firstName.trim()} ${data.lastName.trim()}`;
 
+  const address = [
+    data.addressLine1,
+    data.addressLine2,
+    `${data.city}, AZ ${data.zip}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const emailText = [
+    "NEW WEBSITE QUOTE REQUEST",
+    "",
+    `Estimate ID: ${estimateId}`,
+    `Customer: ${customerName}`,
+    `Phone: ${data.phone}`,
+    `Email: ${data.email || "Not provided"}`,
+    `Property: ${address}`,
+    "",
+    `Service: ${data.service}`,
+    `Bedrooms: ${data.bedrooms}`,
+    `Bathrooms: ${data.bathrooms}`,
+    `Square feet: ${data.squareFeet}`,
+    `Condition: ${data.condition}`,
+    `Add-ons: ${data.addons.length ? data.addons.join(", ") : "None"}`,
+    "",
+    "Status: Pending manager review",
+    "",
+    "This request has been saved in the TC Cleaning database.",
+  ].join("\n");
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: "TC Cleaning Services <quotes@notifications.tccleaningaz.com>",
+      to: ["quotes@tccleaningaz.com"],
+      subject: `New Quote Request - ${customerName}`,
+      text: emailText,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Resend notification failed: ${error}`);
+  }
+}
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -228,14 +283,26 @@ const worker = {
 
       await env.DB.batch(statements);
 
-      return json(
-        {
-          success: true,
-          estimateId,
-          message: "Your quote request was received.",
-        },
-        201
-      );
+// Send notification after the database successfully saves the quote.
+// Email failure must not undo or invalidate the saved quote.
+let notificationSent = false;
+
+try {
+  await sendQuoteNotification(data, estimateId, env);
+  notificationSent = true;
+} catch (error) {
+  console.error("Quote notification error:", error);
+}
+
+return json(
+  {
+    success: true,
+    estimateId,
+    notificationSent,
+    message: "Your quote request was received.",
+  },
+  201
+);
     } catch {
       return json(
         { error: "We could not save your request. Please try again." },
