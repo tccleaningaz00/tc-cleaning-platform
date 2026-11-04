@@ -90,6 +90,7 @@ async function sendQuoteNotification(
     throw new Error(`Resend notification failed: ${error}`);
   }
 }
+
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
