@@ -59,9 +59,24 @@ export default function Home() {
         <div className="container topbar-inner">
           <span>Locally Owned. Proudly Serving the East Valley.</span>
           <div className="topbar-right">
-            <span>★★★★★ 5.0 Google Rating</span>
-            <a href="tel:4803108040">(480) 310-8040</a>
-          </div>
+  <span>★★★★★ 5.0 Google Rating</span>
+  <a href="tel:4803108040">(480) 310-8040</a>
+  <a
+    href="/manager/login"
+    style={{
+      color: "#ffffff",
+      textDecoration: "none",
+      fontSize: "12px",
+      fontWeight: 600,
+      border: "1px solid rgba(255,255,255,0.35)",
+      borderRadius: "6px",
+      padding: "7px 10px",
+      marginLeft: "10px",
+    }}
+  >
+    🔒 Owner / Admin
+  </a>
+</div>
         </div>
       </div>
 
