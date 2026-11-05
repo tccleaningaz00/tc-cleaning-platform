@@ -4,9 +4,15 @@ interface Env {
   API_SECRET: string;
   RESEND_API_KEY: string;
   GOOGLE_TOKEN_SECRET: string;
-  GOOGLE_TOKEN_ENCRYPTION_KEY: string;
+  GOOGLE_TOKEN_ENCRYPTION_KEY?: string;
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
+}
+
+function getGoogleEncryptionKey(env: Env) {
+  // Keep the deployed GOOGLE_TOKEN_SECRET binding working while accepting the
+  // more explicit name for future deployments.
+  return env.GOOGLE_TOKEN_ENCRYPTION_KEY || env.GOOGLE_TOKEN_SECRET;
 }
 
 interface QuotePayload {
@@ -42,7 +48,7 @@ function isText(value: unknown): value is string {
 
 async function encryptToken(token: string, env: Env) {
   const keyBytes = Uint8Array.from(
-    atob(env.GOOGLE_TOKEN_ENCRYPTION_KEY),
+    atob(getGoogleEncryptionKey(env)),
     (c) => c.charCodeAt(0)
   );
 
@@ -77,7 +83,7 @@ async function decryptToken(
   env: Env
 ) {
   const keyBytes = Uint8Array.from(
-    atob(env.GOOGLE_TOKEN_ENCRYPTION_KEY),
+    atob(getGoogleEncryptionKey(env)),
     (c) => c.charCodeAt(0)
   );
 

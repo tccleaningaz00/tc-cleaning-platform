@@ -5,7 +5,19 @@ import { verifyManagerSession } from "../../lib/manager-auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function ManagerDashboard() {
+type CalendarEvent = {
+  id: string;
+  summary?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+  location?: string;
+};
+
+export default async function ManagerDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ calendar?: string }>;
+}) {
   const cookieStore = await cookies();
   const token = cookieStore.get("tc_manager_session")?.value;
 
@@ -17,6 +29,34 @@ export default async function ManagerDashboard() {
 
   if (!manager) {
     redirect("/manager/login");
+  }
+
+  const { calendar: calendarStatus } = await searchParams;
+  let events: CalendarEvent[] = [];
+  let calendarError = "";
+  const workerUrl = process.env.TC_CLEANING_API_URL;
+  const apiSecret = process.env.TC_CLEANING_API_SECRET;
+
+  if (workerUrl && apiSecret) {
+    try {
+      const endpoint = new URL(workerUrl);
+      endpoint.pathname = endpoint.pathname.replace(/\/quote\/?$/, "");
+      endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/calendar-events`;
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${apiSecret}` },
+        cache: "no-store",
+      });
+      const data = await response.json() as {
+        events?: { items?: CalendarEvent[] };
+        error?: string;
+      };
+      if (!response.ok) throw new Error(data.error || "Calendar could not be loaded.");
+      events = data.events?.items || [];
+    } catch (error) {
+      calendarError = error instanceof Error ? error.message : "Calendar could not be loaded.";
+    }
+  } else {
+    calendarError = "Calendar service configuration is missing.";
   }
 
   return (
@@ -72,6 +112,30 @@ export default async function ManagerDashboard() {
         <p style={{ color: "#687786" }}>
           Signed in as {manager.email}
         </p>
+
+        <section style={{ background: "white", borderRadius: "12px", padding: "24px", marginTop: "24px", border: "1px solid #e3e9ed" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: "0 0 6px" }}>Google Calendar</h2>
+              <p style={{ margin: 0, color: "#687786" }}>
+                {calendarStatus === "connected" ? "Calendar connected." : calendarError ? calendarError : `${events.length} upcoming and recent events.`}
+              </p>
+            </div>
+            <a href="/api/calendar/connect" style={{ background: "#16834a", color: "white", textDecoration: "none", padding: "11px 16px", borderRadius: "7px", fontWeight: 700 }}>
+              {calendarError ? "Connect Google Calendar" : "Reconnect Google Calendar"}
+            </a>
+          </div>
+          {!calendarError && events.length > 0 && (
+            <ul style={{ paddingLeft: "20px", marginBottom: 0 }}>
+              {events.map((event) => {
+                const startsAt = event.start?.dateTime || event.start?.date;
+                const date = startsAt ? new Date(startsAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: event.start?.dateTime ? "short" : undefined, timeZone: "America/Phoenix" }) : "Time not set";
+                return <li key={event.id} style={{ padding: "10px 0", color: "#172b3d" }}><strong>{date}</strong> · {event.summary || "Untitled event"}{event.location ? ` · ${event.location}` : ""}</li>;
+              })}
+            </ul>
+          )}
+          {!calendarError && events.length === 0 && <p style={{ color: "#687786", marginBottom: 0 }}>No events found in the selected date range.</p>}
+        </section>
 
         <div style={{
           display: "grid",
