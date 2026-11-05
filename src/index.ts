@@ -5,6 +5,8 @@ interface Env {
   RESEND_API_KEY: string;
   GOOGLE_TOKEN_SECRET: string;
   GOOGLE_TOKEN_ENCRYPTION_KEY: string;
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
 }
 
 interface QuotePayload {
@@ -231,8 +233,8 @@ const worker = {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
-            client_id: env.GOOGLE_TOKEN_SECRET,
-            client_secret: env.GOOGLE_TOKEN_ENCRYPTION_KEY,
+            client_id: env.GOOGLE_CLIENT_ID,
+            client_secret: env.GOOGLE_CLIENT_SECRET,  
             refresh_token: refreshToken,
             grant_type: "refresh_token",
           }),
