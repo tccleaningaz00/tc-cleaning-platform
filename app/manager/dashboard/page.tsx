@@ -1,6 +1,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import Image from "next/image";
 import { verifyManagerSession } from "../../lib/manager-auth";
 import GoogleCalendarGrid, { type CalendarEvent } from "../../components/google-calendar-grid";
 
@@ -130,21 +131,31 @@ export default async function ManagerDashboard({
         </p>
 
         <section style={{ background: "white", borderRadius: "12px", padding: "24px", marginTop: "24px", border: "1px solid #e3e9ed" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-            <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <h2 style={{ margin: "0 0 6px" }}>Google Calendar</h2>
               <p style={{ margin: 0, color: "#687786" }}>
                 {calendarError
-                  ? `Calendar connected, but events could not be loaded: ${calendarError}`
+                  ? `Calendar could not be loaded: ${calendarError}`
                   : calendarStatus === "connected"
                     ? "Calendar connected."
                     : callbackError || `${events.length} upcoming and recent events.`}
               </p>
             </div>
-            <a href="/api/calendar/connect" style={{ background: "#16834a", color: "white", textDecoration: "none", padding: "11px 16px", borderRadius: "7px", fontWeight: 700 }}>
-              {calendarError ? "Connect Google Calendar" : "Reconnect Google Calendar"}
-            </a>
+            <Image
+              src="/images/tc-cleaning-logo.png"
+              alt="TC Cleaning Services AZ LLC logo"
+              width={1026}
+              height={695}
+              sizes="(max-width: 600px) 25vw, 136px"
+              style={{ width: "clamp(88px, 25vw, 136px)", height: "auto", flexShrink: 0 }}
+            />
           </div>
+          {calendarError && (
+            <a href="/api/calendar/connect" style={{ display: "inline-block", marginTop: "16px", background: "#16834a", color: "white", textDecoration: "none", padding: "11px 16px", borderRadius: "7px", fontWeight: 700 }}>
+              Reconnect Google Calendar
+            </a>
+          )}
           {!calendarError && events.length > 0 && (
             <GoogleCalendarGrid events={events} initialMonth={today.slice(0, 7)} today={today} />
           )}
