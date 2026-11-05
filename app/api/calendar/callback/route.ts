@@ -3,6 +3,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getGoogleOAuthClient } from "../../../lib/google-calendar";
 
+function isInvalidGrant(error: unknown) {
+  if (!error || typeof error !== "object" || !("response" in error)) return false;
+  const response = error.response;
+  if (!response || typeof response !== "object" || !("data" in response)) return false;
+  const data = response.data;
+  return Boolean(
+    data &&
+      typeof data === "object" &&
+      "error" in data &&
+      data.error === "invalid_grant"
+  );
+}
+
 export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const savedState = cookieStore.get("tc_google_oauth_state")?.value;
@@ -108,6 +121,58 @@ export async function GET(request: NextRequest) {
     console.info("Google Calendar refresh token was accepted for encrypted storage.");
     return finish("connected");
   } catch (error) {
+    // Google authorization codes are single-use. If a browser retries the
+    // callback after another request already exchanged the code and saved the
+    // refresh token, verify that stored connection before showing a failure.
+    if (stage === "code_exchange" && isInvalidGrant(error)) {
+      const workerUrl = process.env.TC_CLEANING_API_URL;
+      const apiSecret = process.env.TC_CLEANING_API_SECRET;
+
+      if (workerUrl && apiSecret) {
+        try {
+          const endpoint = new URL(workerUrl);
+          endpoint.pathname = endpoint.pathname.replace(/\/quote\/?$/, "");
+          endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/calendar-events`;
+          const response = await fetch(endpoint, {
+            headers: { Authorization: `Bearer ${apiSecret}` },
+            cache: "no-store",
+          });
+          const result: unknown = response.ok ? await response.json() : null;
+          const events =
+            result &&
+            typeof result === "object" &&
+            "events" in result &&
+            result.events &&
+            typeof result.events === "object" &&
+            "items" in result.events &&
+            Array.isArray(result.events.items)
+              ? result.events.items
+              : null;
+
+          if (
+            result &&
+            typeof result === "object" &&
+            "success" in result &&
+            result.success === true &&
+            events
+          ) {
+            console.info("Previously saved Google Calendar connection verified after a repeated callback.", {
+              eventCount: events.length,
+            });
+            return finish("connected");
+          }
+
+          console.warn("Previously saved Google Calendar connection could not be verified after a repeated callback.", {
+            status: response.status,
+          });
+        } catch (verificationError) {
+          console.warn("Google Calendar connection verification failed after a repeated callback.", {
+            errorName: verificationError instanceof Error ? verificationError.name : "UnknownError",
+          });
+        }
+      }
+    }
+
     console.error("Google Calendar callback failed.", {
       stage,
       errorName: error instanceof Error ? error.name : "UnknownError",
