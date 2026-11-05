@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS google_calendar_tokens (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  encrypted_token TEXT NOT NULL,
+  iv TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
