@@ -1,5 +1,6 @@
 
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import Image from "next/image";
 import { verifyManagerSession } from "../../lib/manager-auth";
@@ -175,23 +176,31 @@ export default async function ManagerDashboard({
             ["Employees & Payroll", "Manage workforce information and labor costs."],
             ["Expenses & Payments", "Review business expenses and payments."],
             ["Business Reports", "Monitor company performance and financial results."]
-          ].map(([title, description]) => (
-            <article key={title} style={{
-              background: "white",
-              borderRadius: "12px",
-              padding: "24px",
-              boxShadow: "0 3px 14px rgba(0,0,0,0.05)",
-              border: "1px solid #e3e9ed"
-            }}>
-              <h3 style={{ marginTop: 0 }}>{title}</h3>
-              <p style={{ color: "#687786", lineHeight: 1.6 }}>
-                {description}
-              </p>
-              <span style={{ color: "#16834a", fontSize: "13px", fontWeight: 700 }}>
-                Coming soon
-              </span>
-            </article>
-          ))}
+          ].map(([title, description]) => {
+            const card = (
+              <article style={{
+                background: "white",
+                borderRadius: "12px",
+                padding: "24px",
+                boxShadow: "0 3px 14px rgba(0,0,0,0.05)",
+                border: "1px solid #e3e9ed"
+              }}>
+                <h3 style={{ marginTop: 0 }}>{title}</h3>
+                <p style={{ color: "#687786", lineHeight: 1.6 }}>{description}</p>
+                <span style={{ color: "#16834a", fontSize: "13px", fontWeight: 700 }}>
+                  {title === "Customers & Properties" ? "Open client directory" : "Coming soon"}
+                </span>
+              </article>
+            );
+
+            return title === "Customers & Properties" ? (
+              <Link key={title} href="/manager/customers" style={{ color: "inherit", textDecoration: "none" }}>
+                {card}
+              </Link>
+            ) : (
+              <div key={title}>{card}</div>
+            );
+          })}
         </div>
       </section>
     </main>

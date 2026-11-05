@@ -170,7 +170,7 @@ const worker = {
     const path = url.pathname;
 
     if (
-      !["/quote", "/calendar-token", "/calendar-events"].includes(path)
+      !["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path)
     ) {
       return json({ error: "Not found" }, 404);
     }
@@ -179,6 +179,66 @@ const worker = {
 
     if (!env.API_SECRET || authorization !== `Bearer ${env.API_SECRET}`) {
       return json({ error: "Unauthorized" }, 401);
+    }
+
+    if (path === "/customers") {
+      if (request.method !== "GET") {
+        return json({ error: "Method not allowed" }, 405);
+      }
+
+      try {
+        const result = await env.DB.prepare(`
+          SELECT
+            c.id AS customer_id,
+            c.first_name,
+            c.last_name,
+            c.phone,
+            c.email,
+            c.customer_status,
+            p.id AS property_id,
+            p.address_line1,
+            p.address_line2,
+            p.city,
+            p.state,
+            p.zip_code,
+            p.bedrooms,
+            p.bathrooms,
+            p.square_feet,
+            p.property_type,
+            cp.roster_name,
+            cp.alias_names,
+            cp.frequency_category,
+            cp.property_source_text,
+            cp.service_notes,
+            cp.november_schedule_reference,
+            cp.payment_cross_reference,
+            cp.review_flags,
+            cp.source_report_month
+          FROM customers c
+          JOIN client_profiles cp ON cp.customer_id = c.id
+          LEFT JOIN properties p ON p.customer_id = c.id
+          WHERE c.customer_status = 'active'
+          ORDER BY cp.roster_name COLLATE NOCASE
+        `).all<Record<string, unknown>>();
+
+        const batch = await env.DB.prepare(`
+          SELECT id, source_file, report_month, client_count, report_metadata_json
+          FROM client_roster_import_batches
+          ORDER BY imported_at DESC
+          LIMIT 1
+        `).first<Record<string, unknown>>();
+
+        return json({
+          success: true,
+          customers: result.results || [],
+          importBatch: batch || null,
+        });
+      } catch (error) {
+        console.error("Customer directory retrieval failed.", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+        return json({ error: "Unable to load the customer directory." }, 500);
+      }
     }
 
     // Store the Google refresh token encrypted in D1.
