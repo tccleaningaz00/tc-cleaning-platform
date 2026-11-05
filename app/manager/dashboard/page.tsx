@@ -16,7 +16,7 @@ type CalendarEvent = {
 export default async function ManagerDashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ calendar?: string }>;
+  searchParams: Promise<{ calendar?: string; calendar_reason?: string }>;
 }) {
   const cookieStore = await cookies();
   const token = cookieStore.get("tc_manager_session")?.value;
@@ -31,11 +31,25 @@ export default async function ManagerDashboard({
     redirect("/manager/login");
   }
 
-  const { calendar: calendarStatus } = await searchParams;
+  const { calendar: calendarStatus, calendar_reason: calendarReason } = await searchParams;
   let events: CalendarEvent[] = [];
   let calendarError = "";
   const workerUrl = process.env.TC_CLEANING_API_URL;
   const apiSecret = process.env.TC_CLEANING_API_SECRET;
+
+  const callbackMessages: Record<string, string> = {
+    google_denied: "Google authorization was declined. Connect again and approve calendar access.",
+    state: "The Google sign-in expired or returned to a different browser session. Start the connection again.",
+    no_refresh_token: "Google did not issue ongoing calendar access. Retry with consent; if this repeats, remove TC Cleaning access from your Google Account and connect again.",
+    worker_configuration: "The website could not reach its configured calendar service.",
+    worker_rejected: "The calendar service rejected token storage. Check the Worker authorization settings.",
+    worker_response: "The calendar service returned an invalid token-storage response.",
+    code_exchange: "Google authorization could not be exchanged. Connect again.",
+    worker_token_storage: "The calendar service could not securely save the Google token.",
+  };
+  const callbackError = calendarStatus === "error" && calendarReason
+    ? callbackMessages[calendarReason]
+    : undefined;
 
   if (workerUrl && apiSecret) {
     try {
@@ -118,7 +132,7 @@ export default async function ManagerDashboard({
             <div>
               <h2 style={{ margin: "0 0 6px" }}>Google Calendar</h2>
               <p style={{ margin: 0, color: "#687786" }}>
-                {calendarStatus === "connected" ? "Calendar connected." : calendarError ? calendarError : `${events.length} upcoming and recent events.`}
+                {calendarStatus === "connected" ? "Calendar connected." : callbackError || calendarError || `${events.length} upcoming and recent events.`}
               </p>
             </div>
             <a href="/api/calendar/connect" style={{ background: "#16834a", color: "white", textDecoration: "none", padding: "11px 16px", borderRadius: "7px", fontWeight: 700 }}>
