@@ -1,0 +1,286 @@
+.calendar {
+  margin-top: 22px;
+  overflow: hidden;
+  border: 1px solid #dfe7ec;
+  border-radius: 12px;
+  background: #f9fbfc;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  background: #f9fbfc;
+}
+
+.monthTitle {
+  margin: 0;
+  color: #172b3d;
+  font-size: 20px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: #687786;
+  font-size: 13px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.todayButton,
+.navButton {
+  min-height: 36px;
+  border: 1px solid #ccd7de;
+  border-radius: 7px;
+  background: white;
+  color: #172b3d;
+  cursor: pointer;
+  font: inherit;
+}
+
+.todayButton {
+  padding: 0 11px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.navButton {
+  width: 36px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.todayButton:hover,
+.navButton:hover {
+  border-color: #16834a;
+  color: #11683a;
+}
+
+.weekdays,
+.days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.weekdays {
+  border-top: 1px solid #dfe7ec;
+  border-bottom: 1px solid #dfe7ec;
+  background: #eef3f5;
+  color: #596a77;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.weekdays > div {
+  padding: 9px 2px;
+}
+
+.days {
+  grid-auto-rows: minmax(116px, auto);
+  background: #dfe7ec;
+  gap: 1px;
+}
+
+.day {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  padding: 8px 6px;
+  border: 0;
+  background: #fff;
+  color: #172b3d;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.day:hover {
+  background: #f2f8f4;
+}
+
+.day:focus-visible,
+.todayButton:focus-visible,
+.navButton:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid #16834a;
+  outline-offset: -3px;
+}
+
+.dayNumber {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.today .dayNumber {
+  background: #16834a;
+  color: #fff;
+}
+
+.selected {
+  box-shadow: inset 0 0 0 2px #16834a;
+}
+
+.outsideMonth {
+  background: #f4f6f7;
+  color: #8b98a2;
+}
+
+.chips {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chip {
+  overflow: hidden;
+  min-width: 0;
+  padding: 3px 5px;
+  border-radius: 4px;
+  color: white;
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.more {
+  padding: 2px 4px;
+  color: #546570;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agenda {
+  padding: 16px;
+  border-top: 1px solid #dfe7ec;
+  background: white;
+}
+
+.agendaTitle {
+  margin: 0 0 10px;
+  color: #172b3d;
+  font-size: 16px;
+}
+
+.agendaList {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agendaItem {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 0;
+  border-top: 1px solid #e8edf0;
+  color: #172b3d;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.agendaTime {
+  color: #16834a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.agendaItem p {
+  margin: 4px 0 0;
+  color: #687786;
+}
+
+.calendarName {
+  display: inline-block;
+  margin-top: 5px;
+  color: #687786;
+  font-size: 12px;
+}
+
+.emptyDay {
+  margin: 0;
+  color: #687786;
+  font-size: 14px;
+}
+
+@media (max-width: 600px) {
+  .toolbar {
+    align-items: flex-start;
+    padding: 13px 10px;
+  }
+
+  .monthTitle {
+    font-size: 18px;
+  }
+
+  .subtitle {
+    max-width: 150px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .controls {
+    gap: 4px;
+  }
+
+  .todayButton {
+    min-height: 34px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .navButton {
+    width: 32px;
+    min-height: 34px;
+  }
+
+  .days {
+    grid-auto-rows: minmax(82px, auto);
+  }
+
+  .day {
+    gap: 5px;
+    padding: 5px 3px;
+  }
+
+  .dayNumber {
+    width: 23px;
+    height: 23px;
+    flex-basis: 23px;
+    font-size: 12px;
+  }
+
+  .chip {
+    padding: 3px 4px;
+    font-size: 9px;
+  }
+
+  .more {
+    padding-left: 2px;
+    font-size: 9px;
+  }
+
+  .agenda {
+    padding: 13px 10px;
+  }
+}

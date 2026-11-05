@@ -266,30 +266,94 @@ const worker = {
         const end = new Date(now);
         end.setMonth(end.getMonth() + 3);
 
-        const calendarUrl = new URL(
-          "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-        );
+        const googleHeaders = {
+          Authorization: `Bearer ${tokenData.access_token}`,
+        };
+        const calendars: Array<{ id: string; summary?: string }> = [];
+        let calendarPageToken: string | undefined;
 
-        calendarUrl.searchParams.set("timeMin", start.toISOString());
-        calendarUrl.searchParams.set("timeMax", end.toISOString());
-        calendarUrl.searchParams.set("singleEvents", "true");
-        calendarUrl.searchParams.set("orderBy", "startTime");
-        calendarUrl.searchParams.set("maxResults", "250");
+        do {
+          const calendarListUrl = new URL(
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList"
+          );
+          calendarListUrl.searchParams.set("maxResults", "250");
+          if (calendarPageToken) {
+            calendarListUrl.searchParams.set("pageToken", calendarPageToken);
+          }
 
-        const eventsResponse = await fetch(calendarUrl, {
-          headers: {
-            Authorization: `Bearer ${tokenData.access_token}`,
-          },
-        });
+          const calendarListResponse = await fetch(calendarListUrl, {
+            headers: googleHeaders,
+          });
+          if (!calendarListResponse.ok) {
+            console.error("Google Calendar list request failed.", {
+              status: calendarListResponse.status,
+            });
+            return json({ error: "Unable to list Google Calendars." }, 502);
+          }
 
-        if (!eventsResponse.ok) {
-          console.error("Google Calendar events failed:", await eventsResponse.text());
-          return json({ error: "Unable to retrieve Google Calendar events." }, 502);
+          const calendarList = await calendarListResponse.json() as {
+            items?: Array<{ id?: string; summary?: string }>;
+            nextPageToken?: string;
+          };
+          calendars.push(
+            ...(calendarList.items || []).filter(
+              (calendar): calendar is { id: string; summary?: string } =>
+                typeof calendar.id === "string" && calendar.id.length > 0
+            )
+          );
+          calendarPageToken = calendarList.nextPageToken;
+        } while (calendarPageToken);
+
+        const events: Array<Record<string, unknown>> = [];
+        for (const calendar of calendars) {
+          let eventPageToken: string | undefined;
+          do {
+            const calendarUrl = new URL(
+              `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.id)}/events`
+            );
+            calendarUrl.searchParams.set("timeMin", start.toISOString());
+            calendarUrl.searchParams.set("timeMax", end.toISOString());
+            calendarUrl.searchParams.set("singleEvents", "true");
+            calendarUrl.searchParams.set("orderBy", "startTime");
+            calendarUrl.searchParams.set("maxResults", "250");
+            if (eventPageToken) {
+              calendarUrl.searchParams.set("pageToken", eventPageToken);
+            }
+
+            const eventsResponse = await fetch(calendarUrl, {
+              headers: googleHeaders,
+            });
+            if (!eventsResponse.ok) {
+              console.error("Google Calendar events request failed.", {
+                status: eventsResponse.status,
+                calendarId: calendar.id === "primary" ? "primary" : "other",
+              });
+              return json({ error: "Unable to retrieve Google Calendar events." }, 502);
+            }
+
+            const calendarEvents = await eventsResponse.json() as {
+              items?: Array<Record<string, unknown>>;
+              nextPageToken?: string;
+            };
+            events.push(
+              ...(calendarEvents.items || []).map((event) => ({
+                ...event,
+                calendarName: calendar.summary || "Google Calendar",
+              }))
+            );
+            eventPageToken = calendarEvents.nextPageToken;
+          } while (eventPageToken);
         }
 
-        const events = await eventsResponse.json();
+        events.sort((left, right) => {
+          const leftStart = left.start as { dateTime?: string; date?: string } | undefined;
+          const rightStart = right.start as { dateTime?: string; date?: string } | undefined;
+          const leftTime = new Date(leftStart?.dateTime || leftStart?.date || "").getTime();
+          const rightTime = new Date(rightStart?.dateTime || rightStart?.date || "").getTime();
+          return leftTime - rightTime;
+        });
 
-        return json({ success: true, events });
+        return json({ success: true, events: { items: events } });
       } catch (error) {
         console.error("Calendar events error:", error);
         return json({ error: "Unable to load calendar events." }, 500);

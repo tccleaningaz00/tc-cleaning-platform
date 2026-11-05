@@ -2,16 +2,9 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifyManagerSession } from "../../lib/manager-auth";
+import GoogleCalendarGrid, { type CalendarEvent } from "../../components/google-calendar-grid";
 
 export const dynamic = "force-dynamic";
-
-type CalendarEvent = {
-  id: string;
-  summary?: string;
-  start?: { dateTime?: string; date?: string };
-  end?: { dateTime?: string; date?: string };
-  location?: string;
-};
 
 export default async function ManagerDashboard({
   searchParams,
@@ -73,6 +66,15 @@ export default async function ManagerDashboard({
     calendarError = "Calendar service configuration is missing.";
   }
 
+  const todayParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Phoenix",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const todayValues = Object.fromEntries(todayParts.map(({ type, value }) => [type, value]));
+  const today = `${todayValues.year}-${todayValues.month}-${todayValues.day}`;
+
   return (
     <main style={{
       minHeight: "100vh",
@@ -132,7 +134,11 @@ export default async function ManagerDashboard({
             <div>
               <h2 style={{ margin: "0 0 6px" }}>Google Calendar</h2>
               <p style={{ margin: 0, color: "#687786" }}>
-                {calendarStatus === "connected" ? "Calendar connected." : callbackError || calendarError || `${events.length} upcoming and recent events.`}
+                {calendarError
+                  ? `Calendar connected, but events could not be loaded: ${calendarError}`
+                  : calendarStatus === "connected"
+                    ? "Calendar connected."
+                    : callbackError || `${events.length} upcoming and recent events.`}
               </p>
             </div>
             <a href="/api/calendar/connect" style={{ background: "#16834a", color: "white", textDecoration: "none", padding: "11px 16px", borderRadius: "7px", fontWeight: 700 }}>
@@ -140,15 +146,9 @@ export default async function ManagerDashboard({
             </a>
           </div>
           {!calendarError && events.length > 0 && (
-            <ul style={{ paddingLeft: "20px", marginBottom: 0 }}>
-              {events.map((event) => {
-                const startsAt = event.start?.dateTime || event.start?.date;
-                const date = startsAt ? new Date(startsAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: event.start?.dateTime ? "short" : undefined, timeZone: "America/Phoenix" }) : "Time not set";
-                return <li key={event.id} style={{ padding: "10px 0", color: "#172b3d" }}><strong>{date}</strong> · {event.summary || "Untitled event"}{event.location ? ` · ${event.location}` : ""}</li>;
-              })}
-            </ul>
+            <GoogleCalendarGrid events={events} initialMonth={today.slice(0, 7)} today={today} />
           )}
-          {!calendarError && events.length === 0 && <p style={{ color: "#687786", marginBottom: 0 }}>No events found in the selected date range.</p>}
+          {!calendarError && events.length === 0 && <p style={{ color: "#687786", marginBottom: 0 }}>No events found from the past month through the next three months.</p>}
         </section>
 
         <div style={{
