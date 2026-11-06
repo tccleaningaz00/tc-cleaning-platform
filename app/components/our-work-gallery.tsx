@@ -8,7 +8,14 @@ import styles from "../our-work/our-work.module.css";
 const categories = ["Bathroom", "Kitchen", "Living Room", "Whole Home"] as const;
 type Category = (typeof categories)[number];
 
-const bathroomPhotos = [
+type Photo = {
+  src: string;
+  alt: string;
+  title: string;
+  room: string;
+};
+
+const bathroomPhotos: Photo[] = [
   { src: "/images/our-work/bathroom-01.jpg", alt: "Bathroom floor and toilet detail", title: "A fresh bathroom detail", room: "Bath details" },
   { src: "/images/our-work/bathroom-02.jpg", alt: "Bathtub and shower surround", title: "Tub & shower care", room: "Tub & shower" },
   { src: "/images/our-work/bathroom-03.jpg", alt: "Bathroom vanity and sink area", title: "Vanity, sink & surfaces", room: "Vanity & sink" },
@@ -16,8 +23,24 @@ const bathroomPhotos = [
   { src: "/images/our-work/bathroom-05.jpg", alt: "Bathroom toilet and tile detail", title: "Care around every corner", room: "Bath details" },
 ];
 
+const kitchenPhotos: Photo[] = [
+  { src: "/images/our-work/kitchen-01.jpg", alt: "Kitchen floor behind the range before detailed floor care", title: "Behind the range", room: "Before" },
+  { src: "/images/our-work/kitchen-02.jpg", alt: "Kitchen floor behind the range after detailed floor care", title: "Floor detail, refreshed", room: "After" },
+  { src: "/images/our-work/kitchen-03.jpg", alt: "Electric cooktop before detailed cleaning", title: "A closer look at the cooktop", room: "Before" },
+  { src: "/images/our-work/kitchen-04.jpg", alt: "Electric cooktop after detailed cleaning", title: "Cooktop after detailed care", room: "After" },
+  { src: "/images/our-work/kitchen-05.jpg", alt: "Close-up of a kitchen appliance exterior", title: "Appliance exterior detail", room: "Kitchen detail" },
+];
+
+const galleryPhotos: Record<Category, Photo[]> = {
+  Bathroom: bathroomPhotos,
+  Kitchen: kitchenPhotos,
+  "Living Room": [],
+  "Whole Home": [],
+};
+
 export default function OurWorkGallery() {
   const [activeCategory, setActiveCategory] = useState<Category>("Bathroom");
+  const activePhotos = galleryPhotos[activeCategory];
 
   return (
     <section className={styles.gallerySection} aria-labelledby="gallery-title">
@@ -39,14 +62,18 @@ export default function OurWorkGallery() {
             onClick={() => setActiveCategory(category)}
           >
             {category}
-            {category === "Bathroom" && <span className={styles.filterCount}>05</span>}
+            {galleryPhotos[category].length > 0 && (
+              <span className={styles.filterCount}>
+                {String(galleryPhotos[category].length).padStart(2, "0")}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {activeCategory === "Bathroom" ? (
+      {activePhotos.length > 0 ? (
         <div className={styles.photoGrid}>
-          {bathroomPhotos.map((photo, index) => (
+          {activePhotos.map((photo, index) => (
             <article className={styles.photoCard} key={photo.src}>
               <Image
                 src={photo.src}
