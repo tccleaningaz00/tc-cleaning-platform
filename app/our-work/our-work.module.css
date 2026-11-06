@@ -85,6 +85,34 @@
 .emptyState h3 { font: 800 24px Manrope, sans-serif; }
 .emptyState p { margin: 7px auto 19px; max-width: 370px; color: var(--muted); font-size: 13px; }
 .emptyState a { justify-self: center; padding: 11px 17px; border-radius: 5px; background: var(--ink); color: white; font-size: 12px; font-weight: 700; }
+.socialSection { padding: 68px max(6vw, calc((100vw - 1200px) / 2)) 80px; background: #fff; }
+.socialIntro { max-width: 1200px; margin: 0 auto 27px; }
+.socialIntro h2 { margin-top: 8px; font: 800 clamp(27px, 3vw, 36px)/1.15 Manrope, sans-serif; letter-spacing: -1.2px; }
+.socialIntro p { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.socialLayout { max-width: 1200px; margin: auto; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(270px, .8fr); align-items: start; gap: 24px; }
+.reelCard { min-width: 0; padding: 18px; border: 1px solid #e4e9ec; border-radius: 12px; background: #f8fafb; box-shadow: 0 10px 28px rgba(21,52,87,.06); }
+.socialCardHeading { display: flex; align-items: center; gap: 11px; padding: 0 3px 15px; }
+.socialCardHeading > div { display: grid; gap: 2px; }
+.socialCardHeading strong { font: 700 14px Manrope, sans-serif; }
+.socialCardHeading > div > span { color: var(--muted); font-size: 11px; }
+.socialBadge { width: 38px; height: 38px; flex: 0 0 38px; display: grid; place-items: center; border-radius: 50%; color: white; background: linear-gradient(135deg,#f5a13c,#d93c82 58%,#7244a8); font: 800 12px Manrope,sans-serif; }
+.instagramEmbed { min-height: 440px; display: flex; justify-content: center; align-items: flex-start; overflow: hidden; border-radius: 8px; background: #fff; }
+.instagramEmbed blockquote { margin-top: 0 !important; }
+.reelFallback { display: flex; justify-content: center; gap: 8px; padding: 14px 8px 2px; color: var(--ink); font-size: 12px; font-weight: 800; }
+.reelFallback:hover { color: #bd2873; }
+.socialAside { padding: 23px; border-radius: 12px; color: white; background: linear-gradient(150deg,#122f51,#1c4767); box-shadow: 0 12px 30px rgba(16,43,80,.14); }
+.socialAside h3 { font: 800 21px Manrope,sans-serif; }
+.socialAside > p { margin: 8px 0 21px; color: rgba(255,255,255,.73); font-size: 12px; line-height: 1.7; }
+.socialLinks { display: grid; gap: 10px; }
+.socialLink { display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; background: rgba(255,255,255,.07); transition: transform .18s ease,background .18s ease; }
+.socialLink:hover { transform: translateY(-2px); background: rgba(255,255,255,.13); }
+.socialLink > span:nth-child(2) { min-width: 0; display: grid; gap: 2px; }
+.socialLink strong { font-size: 12px; }
+.socialLink small { overflow: hidden; color: rgba(255,255,255,.68); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.socialLink b { font-size: 14px; color: #c2e381; }
+.instagramBadge { background: linear-gradient(135deg,#f5a13c,#d93c82 58%,#7244a8); }
+.tiktokBadge { color: white; background: #101216; font-size: 20px; }
+.facebookBadge { background: #1877f2; font: 800 23px Arial,sans-serif; }
 .contactBand { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 35px max(6vw, calc((100vw - 1200px) / 2)); background: #eaf0e4; }
 .contactBand .eyebrow { color: #527a22; }
 .contactBand h2 { margin-top: 6px; font: 800 clamp(20px, 3vw, 29px) Manrope, sans-serif; }
@@ -119,6 +147,11 @@
   .photoCaption { padding: 13px; }
   .photoCaption strong { font-size: 13px; }
   .photoCaption span { font-size: 8px; }
+  .socialSection { padding: 46px 20px 58px; }
+  .socialLayout { grid-template-columns: 1fr; gap: 17px; }
+  .reelCard { padding: 12px; }
+  .instagramEmbed { min-height: 400px; }
+  .socialAside { padding: 19px; }
   .contactBand { padding: 28px 20px; align-items: start; flex-direction: column; }
   .footer { padding: 20px; flex-wrap: wrap; }
 }
