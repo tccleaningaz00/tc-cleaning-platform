@@ -223,53 +223,82 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ABOUT */}
-      <section className="about-section section-padding" id="about">
-        <div className="container about-grid">
-          <div className="about-image-wrap">
-            <div className="about-image">
+      {/* MEET THE OWNER */}
+      <section className="owner-section section-padding" id="about">
+        <div className="container owner-story-grid">
+          <div className="owner-photo-column">
+            <div className="owner-photo-frame">
               <Image
-                src="/images/team-truck.jpg"
-                alt="TC Cleaning team with their company truck"
+                src="/images/crisrra-condado.jpg"
+                alt="Crisrra Condado, founder of TC Cleaning Services AZ LLC"
                 fill
-                sizes="(max-width: 850px) 100vw, 50vw"
+                sizes="(max-width: 850px) 100vw, 44vw"
               />
+              <span className="owner-photo-note">THE CARE BEHIND THE CLEAN</span>
             </div>
-            <div className="about-image-label">
-              <strong>TC Cleaning</strong>
-              <span>Services AZ LLC</span>
+            <div className="owner-logo-card">
+              <Image
+                src="/images/tc-cleaning-logo.png"
+                alt="TC Cleaning Services AZ LLC logo"
+                width={260}
+                height={110}
+              />
             </div>
           </div>
 
-          <div className="about-content">
-            <span className="section-label">ABOUT TC CLEANING</span>
-            <h2>
-              More Than Cleaning.
-              <br />
-              <span>It&apos;s Peace of Mind.</span>
-            </h2>
+          <div className="owner-story">
+            <span className="section-label">THE HEART BEHIND TC CLEANING</span>
+            <h2>Meet the Owner</h2>
+            <h3>Crisrra Condado <span>|</span> Founder of TC Cleaning Services AZ LLC</h3>
 
             <p>
-              At TC Cleaning Services AZ LLC, we believe a clean
-              space makes everyday life better. Our goal is to
-              provide dependable service, detailed work, and
-              an experience you can feel good about.
+              Behind TC Cleaning Services is Crisrra Condado, a dedicated entrepreneur
+              with a passion for creating exceptional experiences for homeowners.
             </p>
 
             <p>
-              From recurring home maintenance to detailed deep
-              cleaning, we take pride in helping our customers
-              enjoy a cleaner, more comfortable space.
+              Crisrra founded TC Cleaning Services with a simple philosophy: quality
+              should never be compromised. She believes that a clean home is about
+              more than appearances — it&apos;s about comfort, peace of mind, and having
+              more time to enjoy the things that matter most.
             </p>
 
-            <div className="about-points">
-              <div>✓ Personalized cleaning services</div>
-              <div>✓ Consistent attention to detail</div>
-              <div>✓ Proudly serving the East Valley</div>
+            <p>
+              Her vision has always been to build a company that stands apart through
+              professionalism, consistency, attention to detail, and genuine
+              relationships with every client.
+            </p>
+
+            <p>
+              As a business owner, Crisrra takes pride in setting high standards for
+              her team and ensuring that every home receives the care and attention
+              it deserves. She believes in doing things the right way, valuing her
+              clients&apos; trust, and delivering a level of service that makes people
+              feel confident inviting her team into their homes.
+            </p>
+
+            <p>
+              What started as an entrepreneurial vision has grown into a trusted
+              residential and commercial cleaning company serving homeowners
+              throughout Arizona&apos;s East Valley.
+            </p>
+
+            <div className="owner-mission">
+              <span>Her mission is simple:</span>
+              <strong>To make life easier, one beautifully maintained home at a time.</strong>
             </div>
 
+            <p>
+              Thank you for considering TC Cleaning Services. We look forward to
+              earning your trust.
+            </p>
+
+            <div className="owner-signature">
+              <strong>— Crisrra Condado</strong>
+              <span>Founder &amp; Owner | TC Cleaning Services AZ LLC</span>
+            </div>
             <a href="#contact" className="button button-blue">
-              Work With Us →
+              Let&apos;s Talk About Your Home →
             </a>
           </div>
         </div>
