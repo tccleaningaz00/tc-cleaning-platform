@@ -98,7 +98,7 @@ export default function Home() {
             <a href="#home">Home</a>
             <a href="#services">Services</a>
             <a href="#about">About Us</a>
-            <a href="#gallery">Our Team</a>
+            <a href="/our-work">Our Work</a>
             <a href="#contact">Contact</a>
           </nav>
 
@@ -246,7 +246,7 @@ export default function Home() {
             <h2>
               More Than Cleaning.
               <br />
-              <span>It's Peace of Mind.</span>
+              <span>It&apos;s Peace of Mind.</span>
             </h2>
 
             <p>
@@ -305,6 +305,11 @@ export default function Home() {
               />
             </div>
           </div>
+          <div className="team-gallery-link">
+            <a href="/our-work" className="button button-blue">
+              Explore Our Work <span aria-hidden="true">→</span>
+            </a>
+          </div>
         </div>
       </section>
 <GoogleReviews />
@@ -335,11 +340,11 @@ export default function Home() {
         <div className="container contact-inner">
           <div>
             <span className="section-label light-label">
-              LET'S GET STARTED
+              LET&apos;S GET STARTED
             </span>
             <h2>Ready for a Cleaner Space?</h2>
             <p>
-              Tell us about your cleaning needs. We'd love to
+              Tell us about your cleaning needs. We&apos;d love to
               help you find the right service for your home or business.
             </p>
           </div>
