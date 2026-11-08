@@ -32,6 +32,78 @@ interface QuotePayload {
   addons: string[];
 }
 
+type ArticleStatus = "draft" | "published";
+
+interface ArticleRow {
+  id: string;
+  slug: string;
+  title: string;
+  category: string;
+  excerpt: string;
+  body: string;
+  status: ArticleStatus;
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+}
+
+interface ArticleInput {
+  title: string;
+  category: string;
+  excerpt: string;
+  body: string;
+  status: ArticleStatus;
+}
+
+function toArticle(row: ArticleRow) {
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    category: row.category,
+    excerpt: row.excerpt,
+    body: row.body,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    publishedAt: row.published_at,
+  };
+}
+
+function parseArticleInput(value: unknown): ArticleInput | null {
+  if (!isRecord(value)) return null;
+
+  const title = isText(value.title) ? value.title.trim() : "";
+  const category = isText(value.category) ? value.category.trim() : "Cleaning Tips";
+  const excerpt = isText(value.excerpt) ? value.excerpt.trim() : "";
+  const body = isText(value.body) ? value.body.replace(/\r\n/g, "\n").trim() : "";
+  const status = value.status;
+
+  if (
+    title.length > 160 ||
+    category.length < 1 || category.length > 60 ||
+    excerpt.length > 320 ||
+    body.length > 40000 ||
+    (status !== "draft" && status !== "published")
+  ) return null;
+
+  if (status === "published" && (!title || !excerpt || !body)) return null;
+
+  return { title, category, excerpt, body, status };
+}
+
+function createArticleSlug(title: string, id: string) {
+  const base = title
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/g, "");
+  return `${base || "cleaning-advice"}-${id.slice(0, 8)}`;
+}
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -167,18 +239,202 @@ async function sendQuoteNotification(
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const path = url.pathname;
+    const path = url.pathname.replace(/\/$/, "") || "/";
+    const publicArticleMatch = path.match(/^\/articles\/([^/]+)$/);
+    const managerArticleMatch = path.match(/^\/manager-articles\/([^/]+)$/);
+    const publicArticleRoute = path === "/articles" || Boolean(publicArticleMatch);
+    const managerArticleRoute = path === "/manager-articles" || Boolean(managerArticleMatch);
+    const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (
-      !["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path)
-    ) {
+    if (!publicArticleRoute && !managerArticleRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
     const authorization = request.headers.get("Authorization");
 
-    if (!env.API_SECRET || authorization !== `Bearer ${env.API_SECRET}`) {
+    if (
+      !publicArticleRoute &&
+      (!env.API_SECRET || authorization !== `Bearer ${env.API_SECRET}`)
+    ) {
       return json({ error: "Unauthorized" }, 401);
+    }
+
+    if (path === "/articles") {
+      if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+      try {
+        const result = await env.DB.prepare(`
+          SELECT id, slug, title, category, excerpt, body, status,
+                 created_at, updated_at, published_at
+          FROM articles
+          WHERE status = 'published'
+          ORDER BY COALESCE(published_at, updated_at) DESC
+          LIMIT 100
+        `).all<ArticleRow>();
+        return json({ success: true, articles: (result.results || []).map(toArticle) });
+      } catch (error) {
+        console.error("Public article list could not be loaded.", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+        return json({ error: "Articles are temporarily unavailable." }, 500);
+      }
+    }
+
+    if (publicArticleMatch) {
+      if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+      let slug = "";
+      try {
+        slug = decodeURIComponent(publicArticleMatch[1]);
+      } catch {
+        return json({ error: "Article not found." }, 404);
+      }
+
+      try {
+        const row = await env.DB.prepare(`
+          SELECT id, slug, title, category, excerpt, body, status,
+                 created_at, updated_at, published_at
+          FROM articles
+          WHERE slug = ? AND status = 'published'
+          LIMIT 1
+        `).bind(slug).first<ArticleRow>();
+        if (!row) return json({ error: "Article not found." }, 404);
+        return json({ success: true, article: toArticle(row) });
+      } catch (error) {
+        console.error("Public article could not be loaded.", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+        return json({ error: "Article is temporarily unavailable." }, 500);
+      }
+    }
+
+    if (path === "/manager-articles") {
+      if (request.method === "GET") {
+        try {
+          const result = await env.DB.prepare(`
+            SELECT id, slug, title, category, excerpt, body, status,
+                   created_at, updated_at, published_at
+            FROM articles
+            ORDER BY updated_at DESC
+            LIMIT 200
+          `).all<ArticleRow>();
+          return json({ success: true, articles: (result.results || []).map(toArticle) });
+        } catch (error) {
+          console.error("Manager article list could not be loaded.", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+          return json({ error: "Articles could not be loaded." }, 500);
+        }
+      }
+
+      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      if (!request.headers.get("Content-Type")?.includes("application/json")) {
+        return json({ error: "JSON required" }, 415);
+      }
+
+      let text: string;
+      try {
+        text = await request.text();
+      } catch {
+        return json({ error: "Could not read article." }, 400);
+      }
+      if (new TextEncoder().encode(text).length > 42000) {
+        return json({ error: "Article is too large." }, 413);
+      }
+
+      let input: ArticleInput | null = null;
+      try {
+        input = parseArticleInput(JSON.parse(text));
+      } catch {
+        return json({ error: "Invalid article data." }, 400);
+      }
+      if (!input) return json({ error: "Please check the article fields." }, 400);
+
+      const id = crypto.randomUUID();
+      const slug = createArticleSlug(input.title, id);
+      try {
+        await env.DB.prepare(`
+          INSERT INTO articles
+            (id, slug, title, category, excerpt, body, status, published_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'published' THEN CURRENT_TIMESTAMP ELSE NULL END)
+        `).bind(
+          id, slug, input.title || "Untitled draft", input.category,
+          input.excerpt, input.body, input.status, input.status
+        ).run();
+
+        const row = await env.DB.prepare(`
+          SELECT id, slug, title, category, excerpt, body, status,
+                 created_at, updated_at, published_at
+          FROM articles WHERE id = ?
+        `).bind(id).first<ArticleRow>();
+        if (!row) return json({ error: "Article could not be saved." }, 500);
+        return json({ success: true, article: toArticle(row) }, 201);
+      } catch (error) {
+        console.error("Article creation failed.", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+        return json({ error: "Article could not be saved." }, 500);
+      }
+    }
+
+    if (managerArticleMatch) {
+      if (request.method !== "PATCH") return json({ error: "Method not allowed" }, 405);
+      if (!request.headers.get("Content-Type")?.includes("application/json")) {
+        return json({ error: "JSON required" }, 415);
+      }
+
+      let text: string;
+      try {
+        text = await request.text();
+      } catch {
+        return json({ error: "Could not read article." }, 400);
+      }
+      if (new TextEncoder().encode(text).length > 42000) {
+        return json({ error: "Article is too large." }, 413);
+      }
+
+      let input: ArticleInput | null = null;
+      try {
+        input = parseArticleInput(JSON.parse(text));
+      } catch {
+        return json({ error: "Invalid article data." }, 400);
+      }
+      if (!input) return json({ error: "Please check the article fields." }, 400);
+
+      let id = "";
+      try {
+        id = decodeURIComponent(managerArticleMatch[1]);
+      } catch {
+        return json({ error: "Article not found." }, 404);
+      }
+
+      try {
+        const result = await env.DB.prepare(`
+          UPDATE articles
+          SET title = ?, category = ?, excerpt = ?, body = ?, status = ?,
+              updated_at = CURRENT_TIMESTAMP,
+              published_at = CASE
+                WHEN ? = 'published' AND status != 'published' THEN CURRENT_TIMESTAMP
+                ELSE published_at
+              END
+          WHERE id = ?
+        `).bind(
+          input.title || "Untitled draft", input.category, input.excerpt,
+          input.body, input.status, input.status, id
+        ).run();
+        if (!result.meta.changes) return json({ error: "Article not found." }, 404);
+
+        const row = await env.DB.prepare(`
+          SELECT id, slug, title, category, excerpt, body, status,
+                 created_at, updated_at, published_at
+          FROM articles WHERE id = ?
+        `).bind(id).first<ArticleRow>();
+        if (!row) return json({ error: "Article could not be loaded." }, 500);
+        return json({ success: true, article: toArticle(row) });
+      } catch (error) {
+        console.error("Article update failed.", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+        return json({ error: "Article could not be updated." }, 500);
+      }
     }
 
     if (path === "/customers") {
