@@ -1,5 +1,6 @@
 import GoogleReviews from "./components/google-reviews";
 import PriceCalculator from "./components/price-calculator";
+import SocialShowcase from "./components/social-showcase";
 import Image from "next/image";
 
 const services = [
@@ -99,6 +100,7 @@ export default function Home() {
             <a href="#services">Services</a>
             <a href="#about">About Us</a>
             <a href="/our-work">Our Work</a>
+            <a href="#social">Follow Us</a>
             <a href="#contact">Contact</a>
           </nav>
 
@@ -341,7 +343,8 @@ export default function Home() {
           </div>
         </div>
       </section>
-<GoogleReviews />
+      <SocialShowcase />
+      <GoogleReviews />
       {/* SERVICE AREA */}
       <section className="area-section section-padding">
         <div className="container">
