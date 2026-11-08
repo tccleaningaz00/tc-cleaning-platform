@@ -8,37 +8,43 @@ const services = [
     number: "01",
     title: "Residential Cleaning",
     description:
-      "Professional home cleaning with attention to detail, consistency, and care.",
+      "One-time or as-needed cleaning tailored to the size, condition, and priorities of your home. We’ll discuss the rooms and details you want addressed so the service scope is clear before scheduling.",
+    bestFor: "A home reset, a special occasion, or help with household upkeep.",
   },
   {
     number: "02",
     title: "Recurring Cleaning",
     description:
-      "Weekly, biweekly, triweekly, and monthly cleaning to keep your home looking its best.",
+      "Choose weekly, biweekly, triweekly, or monthly visits for consistent home maintenance. We’ll agree on a schedule and recurring scope that fits your household and review any changes with you.",
+    bestFor: "Keeping a home on a regular, predictable cleaning rhythm.",
   },
   {
     number: "03",
     title: "Deep Cleaning",
     description:
-      "A detailed top-to-bottom cleaning for kitchens, bathrooms, living spaces, and more.",
+      "A more thorough service for areas that need extra attention, including kitchens, bathrooms, living spaces, and other agreed areas. The final task list and estimate depend on the home’s condition and the work requested.",
+    bestFor: "A first visit, seasonal refresh, or a home that needs more than routine upkeep.",
   },
   {
     number: "04",
     title: "Move-In / Move-Out",
     description:
-      "Detailed cleaning to help prepare your home for its next chapter.",
+      "A one-time clean to help prepare a residence before move-in or after move-out. We’ll review the property’s condition, access, and requested checklist to confirm the scope before the appointment.",
+    bestFor: "Preparing a home for a new resident, lease handoff, or move.",
   },
   {
     number: "05",
     title: "Commercial Cleaning",
     description:
-      "Dependable cleaning solutions for offices and professional spaces.",
+      "Cleaning for offices and professional spaces, with the service scope shaped around the location, areas in use, and preferred schedule. Contact us to discuss the space and request a tailored quote.",
+    bestFor: "Businesses looking for scheduled care for their work environment.",
   },
   {
     number: "06",
     title: "Rental & Airbnb",
     description:
-      "Reliable cleaning and turnover services for rental properties.",
+      "Cleaning and turnover support for short-term and long-term rental properties. We’ll confirm access, timing, and the requested turnover checklist when preparing the quote.",
+    bestFor: "Between-stay turnovers or ongoing rental property maintenance.",
   },
 ];
 
@@ -216,6 +222,10 @@ export default function Home() {
                 <div className="service-divider" />
                 <h3>{service.title}</h3>
                 <p>{service.description}</p>
+                <div className="service-card-detail">
+                  <span>GOOD FIT FOR</span>
+                  <p>{service.bestFor}</p>
+                </div>
                 <a href="#contact" className="service-link">
                   Get a Quote <span>→</span>
                 </a>

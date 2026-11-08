@@ -415,6 +415,8 @@ img {
 
 .service-card {
   padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid #e7edf3;
   background: white;
   border-radius: 7px;
@@ -448,19 +450,41 @@ img {
   font-weight: 800;
 }
 
-.service-card p {
+.service-card > p {
   color: var(--text);
   font-size: 13px;
   line-height: 1.8;
   margin-top: 12px;
-  min-height: 70px;
+  flex: 1;
+}
+
+.service-card-detail {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #edf1f4;
+}
+
+.service-card-detail span {
+  color: var(--blue);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.3px;
+}
+
+.service-card-detail p {
+  color: var(--navy);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.65;
+  margin-top: 5px;
 }
 
 .service-link {
   display: inline-flex;
   gap: 10px;
   align-items: center;
-  margin-top: 20px;
+  margin-top: auto;
+  padding-top: 20px;
   color: var(--blue);
   font-size: 12px;
   font-weight: 800;
