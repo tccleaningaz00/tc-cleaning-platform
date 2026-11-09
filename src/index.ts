@@ -43,6 +43,7 @@ interface InvoiceInput {
   issueDate: string;
   dueDate: string;
   notes: string;
+  paymentUrl: string;
   taxPercent: number;
   items: InvoiceLineInput[];
 }
@@ -66,6 +67,18 @@ function parseInvoiceInput(value: unknown): InvoiceInput | null {
   const issueDate = text("issueDate", 10, true);
   const dueDate = text("dueDate", 10, true);
   const notes = text("notes", 2000);
+  const rawPaymentUrl = value.paymentUrl;
+  let paymentUrl = "";
+  if (rawPaymentUrl !== undefined) {
+    if (typeof rawPaymentUrl !== "string" || rawPaymentUrl.trim().length > 2048) return null;
+    paymentUrl = rawPaymentUrl.trim();
+    if (paymentUrl) {
+      try {
+        const url = new URL(paymentUrl);
+        if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return null;
+      } catch { return null; }
+    }
+  }
   const taxPercent = value.taxPercent;
   if (clientName === null || clientEmail === null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail) || clientPhone === null || billingAddress === null || issueDate === null || dueDate === null || notes === null || !/^\d{4}-\d{2}-\d{2}$/.test(issueDate) || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || typeof taxPercent !== "number" || !Number.isFinite(taxPercent) || taxPercent < 0 || taxPercent > 20) return null;
   const items: InvoiceLineInput[] = [];
@@ -73,7 +86,7 @@ function parseInvoiceInput(value: unknown): InvoiceInput | null {
     if (!isRecord(raw) || typeof raw.description !== "string" || !raw.description.trim() || raw.description.length > 240 || typeof raw.quantity !== "number" || !Number.isFinite(raw.quantity) || raw.quantity <= 0 || raw.quantity > 10000 || typeof raw.unitPrice !== "number" || !Number.isFinite(raw.unitPrice) || raw.unitPrice < 0 || raw.unitPrice > 1000000) return null;
     items.push({ description: raw.description.trim(), quantity: raw.quantity, unitPrice: raw.unitPrice });
   }
-  return { customerId, clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, taxPercent, items };
+  return { customerId, clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, paymentUrl, taxPercent, items };
 }
 
 function money(cents: number) {
@@ -84,7 +97,8 @@ function invoiceEmailHtml(invoice: InvoiceRow, items: InvoiceItemRow[]) {
   const rows = items.map((item) => `<tr><td style="padding:12px;border-bottom:1px solid #e6ebef">${escapeHtml(item.description)}</td><td style="padding:12px;text-align:center;border-bottom:1px solid #e6ebef">${item.quantity}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.unit_price_cents)}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.line_total_cents)}</td></tr>`).join("");
   const address = invoice.billing_address ? `<br>${escapeHtml(invoice.billing_address).replace(/\n/g, "<br>")}` : "";
   const notes = invoice.notes ? `<p style="white-space:pre-line;color:#52616d">${escapeHtml(invoice.notes)}</p>` : "";
-  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Total <strong>${money(invoice.total_cents)}</strong></p></div>${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
+  const paymentButton = invoice.payment_url ? `<div style="margin:28px 0;text-align:center"><a href="${escapeHtml(invoice.payment_url)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#18834a;color:#fff;text-decoration:none;font-weight:bold">Pay by card</a><p style="margin:10px 0 0;color:#687786;font-size:13px">Secure checkout provided by Chase.</p></div>` : "";
+  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Total <strong>${money(invoice.total_cents)}</strong></p></div>${paymentButton}${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
 }
 
 function invoiceReceiptHtml(invoice: InvoiceRow, items: InvoiceItemRow[], paidAt: string) {
@@ -95,6 +109,7 @@ function invoiceReceiptHtml(invoice: InvoiceRow, items: InvoiceItemRow[], paidAt
 interface InvoiceRow {
   id: string; invoice_number: string; customer_id: string | null; client_name: string; client_email: string;
   client_phone: string; billing_address: string; issue_date: string; due_date: string; notes: string;
+  payment_url?: string;
   status: string; subtotal_cents: number; tax_cents: number; total_cents: number; sent_at: string | null;
   receipt_status?: "not_sent" | "sending" | "sent" | "failed"; receipt_sent_at?: string | null;
   created_at: string; items?: InvoiceItemRow[];
@@ -713,9 +728,9 @@ const worker = {
             if (!customer) return json({ error: "Selected client was not found." }, 404);
           }
           const statements = [env.DB.prepare(`
-            INSERT INTO invoices (id, invoice_number, customer_id, client_name, client_email, client_phone, billing_address, issue_date, due_date, notes, subtotal_cents, tax_cents, total_cents)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).bind(id, invoiceNumber, input.customerId || null, input.clientName, input.clientEmail, input.clientPhone, input.billingAddress, input.issueDate, input.dueDate, input.notes, subtotal, tax, total),
+            INSERT INTO invoices (id, invoice_number, customer_id, client_name, client_email, client_phone, billing_address, issue_date, due_date, notes, subtotal_cents, tax_cents, total_cents, payment_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(id, invoiceNumber, input.customerId || null, input.clientName, input.clientEmail, input.clientPhone, input.billingAddress, input.issueDate, input.dueDate, input.notes, subtotal, tax, total, input.paymentUrl),
           ...itemRows.map((item) => env.DB.prepare(`
             INSERT INTO invoice_items (id, invoice_id, description, quantity, unit_price_cents, line_total_cents)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -740,7 +755,7 @@ const worker = {
           const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
           if (!invoice) throw new Error("Invoice record missing after send claim.");
           const lines = (items.results || []).map((item) => `${item.description} | ${item.quantity} × ${money(item.unit_price_cents)} = ${money(item.line_total_cents)}`).join("\n");
-          const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
+          const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, ...(invoice.payment_url ? ["", "Pay securely by credit or debit card:", invoice.payment_url] : []), invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
           const emailResponse = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: { Authorization: `Bearer ${env.RESEND_INVOICE_API_KEY}`, "Content-Type": "application/json" },
