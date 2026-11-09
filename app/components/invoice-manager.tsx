@@ -28,6 +28,8 @@ const labelStyle = { display: "grid", gap: "6px", color: "#465766", fontSize: "1
 const buttonStyle = { background: "#16834a", color: "white", border: 0, padding: "11px 16px", borderRadius: "7px", fontWeight: 700 as const, cursor: "pointer" };
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const phoenixDate = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+const defaultVenmoUrl = "https://venmo.com/code?user_id=3911407825323357177&created=1794261030";
+const defaultZelleRecipient = "(480) 310-8040";
 
 export default function InvoiceManager({ clients }: { clients: Client[] }) {
   const [existing, setExisting] = useState(false);
@@ -40,6 +42,8 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
   const [dueDate, setDueDate] = useState(() => phoenixDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)));
   const [notes, setNotes] = useState("");
   const [paymentUrl, setPaymentUrl] = useState("");
+  const [venmoUrl, setVenmoUrl] = useState(defaultVenmoUrl);
+  const [zelleRecipient, setZelleRecipient] = useState(defaultZelleRecipient);
   const [taxPercent, setTaxPercent] = useState("0");
   const [lines, setLines] = useState<Line[]>([{ description: "", quantity: "1", unitPrice: "" }]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -86,12 +90,12 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
     try {
       const response = await fetch("/api/manager/invoices", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: existing ? selectedId : "", clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, paymentUrl, taxPercent: Number(taxPercent), items: lines.map((line) => ({ description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })) }),
+        body: JSON.stringify({ customerId: existing ? selectedId : "", clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, paymentUrl, venmoUrl, zelleRecipient, taxPercent: Number(taxPercent), items: lines.map((line) => ({ description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })) }),
       });
       const data = await response.json() as { invoice?: { invoice_number?: string }; error?: string };
       if (!response.ok) throw new Error(data.error || "The invoice draft could not be saved.");
       setNotice(`Draft ${data.invoice?.invoice_number || "invoice"} saved. Review the recipient and details before sending.`);
-      setClientName(""); setClientEmail(""); setClientPhone(""); setBillingAddress(""); setSelectedId(""); setExisting(false); setNotes(""); setPaymentUrl(""); setTaxPercent("0"); setLines([{ description: "", quantity: "1", unitPrice: "" }]);
+      setClientName(""); setClientEmail(""); setClientPhone(""); setBillingAddress(""); setSelectedId(""); setExisting(false); setNotes(""); setPaymentUrl(""); setVenmoUrl(defaultVenmoUrl); setZelleRecipient(defaultZelleRecipient); setTaxPercent("0"); setLines([{ description: "", quantity: "1", unitPrice: "" }]);
       await loadInvoices();
     } catch (err) { setError(err instanceof Error ? err.message : "The invoice draft could not be saved."); }
     finally { setBusy(false); }
@@ -151,6 +155,10 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
           <div style={{ borderRadius: 9, background: "#f3f6f8", padding: 16, alignSelf: "start", color: "#354858" }}><p style={{ margin: "0 0 8px", display: "flex", justifyContent: "space-between", gap: 24 }}>Subtotal <strong>{usd(totals.subtotal)}</strong></p><p style={{ margin: "0 0 8px", display: "flex", justifyContent: "space-between", gap: 24 }}>Tax <strong>{usd(totals.tax)}</strong></p><p style={{ margin: 0, paddingTop: 10, borderTop: "1px solid #d7e0e6", display: "flex", justifyContent: "space-between", gap: 24, fontSize: 19 }}>Total <strong>{usd(totals.total)}</strong></p></div>
         </div>
         <label style={{ ...labelStyle, marginTop: 16 }}>Chase payment link (optional)<input type="url" maxLength={2048} placeholder="Paste the Chase QuickAccept payment link" value={paymentUrl} onChange={(event) => setPaymentUrl(event.target.value)} style={fieldStyle} /><span style={{ color: "#687786", fontSize: 13, fontWeight: 400 }}>Create the link in Chase for this invoice total. If added, the customer’s invoice email will include a secure “Pay by card” button.</span></label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 230px), 1fr))", gap: 14, marginTop: 16 }}>
+          <label style={labelStyle}>Venmo link<input type="url" required maxLength={2048} value={venmoUrl} onChange={(event) => setVenmoUrl(event.target.value)} style={fieldStyle} /><span style={{ color: "#687786", fontSize: 13, fontWeight: 400 }}>Customers enter the invoice total in Venmo.</span></label>
+          <label style={labelStyle}>Zelle business recipient<input required maxLength={80} value={zelleRecipient} onChange={(event) => setZelleRecipient(event.target.value)} style={fieldStyle} /><span style={{ color: "#687786", fontSize: 13, fontWeight: 400 }}>Customers send the invoice total from their bank’s Zelle feature and include the invoice number.</span></label>
+        </div>
         <p style={{ color: "#687786", fontSize: 13 }}>The invoice is branded with the TC Cleaning logo and will be sent from invoices@tccleaningaz.com.</p>
         {senderStatus === "ready" && <p role="status" style={{ padding: 10, borderRadius: 7, background: "#e8f5ec", color: "#176b40", fontSize: 14 }}>The dedicated invoice email key is configured. Resend will check the sender when an invoice is sent.</p>}
         {senderStatus === "not-ready" && <p role="alert" style={{ padding: 10, borderRadius: 7, background: "#fff4dc", color: "#775715", fontSize: 14 }}>A dedicated Resend sending key for tccleaningaz.com is not configured yet. You can save invoice drafts; sending will be available once that key is added to the invoice service.</p>}

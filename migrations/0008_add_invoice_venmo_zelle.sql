@@ -1,0 +1,2 @@
+ALTER TABLE invoices ADD COLUMN venmo_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE invoices ADD COLUMN zelle_recipient TEXT NOT NULL DEFAULT '';
