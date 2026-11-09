@@ -87,10 +87,16 @@ function invoiceEmailHtml(invoice: InvoiceRow, items: InvoiceItemRow[]) {
   return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Total <strong>${money(invoice.total_cents)}</strong></p></div>${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
 }
 
+function invoiceReceiptHtml(invoice: InvoiceRow, items: InvoiceItemRow[], paidAt: string) {
+  const rows = items.map((item) => `<tr><td style="padding:12px;border-bottom:1px solid #e6ebef">${escapeHtml(item.description)}</td><td style="padding:12px;text-align:center;border-bottom:1px solid #e6ebef">${item.quantity}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.line_total_cents)}</td></tr>`).join("");
+  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">PAYMENT RECEIPT · ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)} paid</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>We received and recorded your payment for invoice <strong>${escapeHtml(invoice.invoice_number)}</strong>. This email is your receipt.</p><p><strong>Payment recorded:</strong> ${escapeHtml(paidAt)}<br><strong>Invoice:</strong> ${escapeHtml(invoice.invoice_number)}<br><strong>Amount paid:</strong> ${money(invoice.total_cents)}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2" style="padding:12px;text-align:right;font-weight:bold">Total paid</td><td style="padding:12px;text-align:right;font-weight:bold">${money(invoice.total_cents)}</td></tr></tfoot></table><p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
+}
+
 interface InvoiceRow {
   id: string; invoice_number: string; customer_id: string | null; client_name: string; client_email: string;
   client_phone: string; billing_address: string; issue_date: string; due_date: string; notes: string;
   status: string; subtotal_cents: number; tax_cents: number; total_cents: number; sent_at: string | null;
+  receipt_status?: "not_sent" | "sending" | "sent" | "failed"; receipt_sent_at?: string | null;
   created_at: string; items?: InvoiceItemRow[];
 }
 interface InvoiceItemRow { id: string; description: string; quantity: number; unit_price_cents: number; line_total_cents: number }
@@ -764,9 +770,41 @@ const worker = {
       if (request.method === "POST" && managerInvoicePaidMatch) {
         const id = managerInvoicePaidMatch[1];
         if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
-        const result = await env.DB.prepare("UPDATE invoices SET status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sent'").bind(id).run();
-        if (!result.meta.changes) return json({ error: "Only sent invoices can be marked paid." }, 409);
-        return json({ success: true });
+        if (!env.RESEND_INVOICE_API_KEY) return json({ error: "Invoice was not marked paid because receipt email is not configured." }, 503);
+        try {
+          const invoice = await env.DB.prepare("SELECT * FROM invoices WHERE id = ?").bind(id).first<InvoiceRow>();
+          if (!invoice) return json({ error: "Invoice not found." }, 404);
+          if (invoice.status !== "sent" && invoice.status !== "paid") return json({ error: "Only sent invoices can be marked paid." }, 409);
+          if (invoice.status === "paid" && invoice.receipt_status === "sent") return json({ success: true, receiptSent: true, alreadyPaid: true });
+          if (invoice.status === "paid" && invoice.receipt_status === "sending") return json({ error: "The receipt is already being sent. Refresh the invoice list shortly." }, 409);
+          const claimed = await env.DB.prepare("UPDATE invoices SET status = 'paid', receipt_status = 'sending', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND ((status = 'sent') OR (status = 'paid' AND receipt_status IN ('not_sent', 'failed')))").bind(id).run();
+          if (!claimed.meta.changes) return json({ error: "The payment or receipt state changed. Refresh the invoice list and try again." }, 409);
+          const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
+          const paidAt = new Intl.DateTimeFormat("en-US", { dateStyle: "long", timeZone: "America/Phoenix" }).format(new Date());
+          const textBody = [`TC CLEANING SERVICES AZ LLC`, `PAYMENT RECEIPT · ${invoice.invoice_number}`, "", `Hello ${invoice.client_name},`, `We received and recorded your payment for invoice ${invoice.invoice_number}.`, `Payment recorded: ${paidAt}`, `Amount paid: ${money(invoice.total_cents)}`, "", "Items:", ...(items.results || []).map((item) => `${item.description} × ${item.quantity} — ${money(item.line_total_cents)}`), "", `Total paid: ${money(invoice.total_cents)}`, "", "Thank you for choosing TC Cleaning Services AZ LLC.", "(480) 310-8040 | tccleaningaz.com"].join("\n");
+          const emailResponse = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${env.RESEND_INVOICE_API_KEY}`, "Content-Type": "application/json", "Idempotency-Key": `invoice-receipt-${invoice.id}` },
+            body: JSON.stringify({
+              from: "TC Cleaning Services <invoices@tccleaningaz.com>",
+              to: [invoice.client_email],
+              subject: `Payment receipt for invoice ${invoice.invoice_number}`,
+              text: textBody,
+              html: invoiceReceiptHtml(invoice, items.results || [], paidAt),
+            }),
+          });
+          if (!emailResponse.ok) {
+            await env.DB.prepare("UPDATE invoices SET receipt_status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND receipt_status = 'sending'").bind(id).run();
+            console.error("Invoice receipt provider rejected the message.", { providerStatus: emailResponse.status });
+            return json({ error: "Invoice marked paid, but the receipt email was not accepted. Use Send receipt to retry." }, 502);
+          }
+          await env.DB.prepare("UPDATE invoices SET receipt_status = 'sent', receipt_sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND receipt_status = 'sending'").bind(id).run();
+          return json({ success: true, receiptSent: true });
+        } catch (error) {
+          await env.DB.prepare("UPDATE invoices SET receipt_status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND receipt_status = 'sending'").bind(id).run().catch(() => undefined);
+          console.error("Invoice receipt could not be sent.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Invoice marked paid, but the receipt could not be sent. Use Send receipt to retry." }, 502);
+        }
       }
 
       return json({ error: "Method not allowed." }, 405);

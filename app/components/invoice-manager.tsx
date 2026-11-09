@@ -18,6 +18,7 @@ type Line = { description: string; quantity: string; unitPrice: string };
 type Invoice = {
   id: string; invoice_number: string; client_name: string; client_email: string;
   issue_date: string; due_date: string; status: "draft" | "sending" | "sent" | "paid" | "void";
+  receipt_status?: "not_sent" | "sending" | "sent" | "failed";
   subtotal_cents: number; tax_cents: number; total_cents: number; created_at: string;
 };
 
@@ -99,11 +100,14 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
     setBusy(true); setError(""); setNotice("");
     try {
       const response = await fetch(`/api/manager/invoices/${invoice.id}/${action}`, { method: "POST" });
-      const data = await response.json() as { error?: string };
+      const data = await response.json() as { error?: string; receiptSent?: boolean };
       if (!response.ok) throw new Error(data.error || "That invoice action could not be completed.");
-      setNotice(action === "send" ? `Invoice ${invoice.invoice_number} was sent to ${invoice.client_email}.` : `Invoice ${invoice.invoice_number} marked paid.`);
+      setNotice(action === "send" ? `Invoice ${invoice.invoice_number} was sent to ${invoice.client_email}.` : data.receiptSent ? `Invoice ${invoice.invoice_number} marked paid. A branded receipt was emailed to ${invoice.client_email}.` : `Invoice ${invoice.invoice_number} marked paid.`);
       await loadInvoices();
-    } catch (err) { setError(err instanceof Error ? err.message : "That invoice action could not be completed."); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That invoice action could not be completed.");
+      if (action === "paid") await loadInvoices();
+    }
     finally { setBusy(false); }
   }
 
@@ -156,7 +160,7 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div><h2 style={{ margin: 0 }}>Invoices</h2><p style={{ color: "#687786", marginBottom: 0 }}>Drafts are saved in the business database. Sending is a separate, confirmed action.</p></div><input aria-label="Search invoices" placeholder="Search invoices" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...fieldStyle, maxWidth: 260 }} /></div>
       <div style={{ display: "grid", gap: 12, marginTop: 18 }}>{visible.length === 0 ? <p style={{ color: "#687786" }}>{filter ? "No matching invoices." : "No invoices yet. Saved drafts will appear here."}</p> : visible.map((invoice) => <article key={invoice.id} style={{ border: "1px solid #e3e9ed", borderRadius: 9, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <div><strong>{invoice.invoice_number}</strong><span style={{ display: "inline-block", marginLeft: 10, padding: "3px 8px", borderRadius: 99, background: invoice.status === "paid" ? "#e5f4e9" : invoice.status === "sent" ? "#e8f0fa" : "#fff4dc", color: "#354858", fontSize: 12, textTransform: "capitalize" }}>{invoice.status}</span><p style={{ margin: "7px 0 0", color: "#52616d" }}>{invoice.client_name} · {invoice.client_email}</p><p style={{ margin: "4px 0 0", color: "#687786", fontSize: 14 }}>Due {invoice.due_date} · {usd(invoice.total_cents)}</p></div>
-        {invoice.status === "draft" && <button disabled={busy || senderStatus === "checking" || senderStatus === "not-ready"} onClick={() => void actOnInvoice(invoice, "send")} style={{ ...buttonStyle, opacity: busy || senderStatus === "checking" || senderStatus === "not-ready" ? .55 : 1 }} title={senderStatus === "ready" || senderStatus === "unknown" ? "Confirm the recipient before sending" : "Verify invoices@tccleaningaz.com with the outbound email provider first"}>Review &amp; send</button>}{invoice.status === "sent" && <button disabled={busy} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763" }}>Mark paid</button>}
+        {invoice.status === "draft" && <button disabled={busy || senderStatus === "checking" || senderStatus === "not-ready"} onClick={() => void actOnInvoice(invoice, "send")} style={{ ...buttonStyle, opacity: busy || senderStatus === "checking" || senderStatus === "not-ready" ? .55 : 1 }} title={senderStatus === "ready" || senderStatus === "unknown" ? "Confirm the recipient before sending" : "Verify invoices@tccleaningaz.com with the outbound email provider first"}>Review &amp; send</button>}{invoice.status === "sent" && <button disabled={busy} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763" }}>Mark paid &amp; send receipt</button>}{invoice.status === "paid" && invoice.receipt_status !== "sent" && <button disabled={busy || invoice.receipt_status === "sending"} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763", opacity: busy || invoice.receipt_status === "sending" ? .55 : 1 }}>{invoice.receipt_status === "sending" ? "Sending receipt…" : invoice.receipt_status === "failed" ? "Retry receipt" : "Send receipt"}</button>}{invoice.status === "paid" && invoice.receipt_status === "sent" && <span style={{ color: "#176b40", fontSize: 14 }}>Receipt emailed</span>}
       </article>)}</div>
     </section>
   </div>;
