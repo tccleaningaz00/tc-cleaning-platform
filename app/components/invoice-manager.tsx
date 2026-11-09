@@ -49,8 +49,8 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
   useEffect(() => {
     void loadInvoices();
     void fetch("/api/manager/invoices/sender-status", { cache: "no-store" })
-      .then(async (response) => response.ok ? response.json() as Promise<{ senderReady?: boolean }> : null)
-      .then((data) => setSenderStatus(data ? (data.senderReady ? "ready" : "not-ready") : "unknown"))
+      .then(async (response) => response.ok ? response.json() as Promise<{ senderReady?: boolean | null }> : null)
+      .then((data) => setSenderStatus(data?.senderReady === true ? "ready" : data?.senderReady === false ? "not-ready" : "unknown"))
       .catch(() => setSenderStatus("unknown"));
   }, []);
 
@@ -147,7 +147,7 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
         <p style={{ color: "#687786", fontSize: 13 }}>The invoice is branded with the TC Cleaning logo and will be sent from invoices@tccleaningaz.com.</p>
         {senderStatus === "ready" && <p role="status" style={{ padding: 10, borderRadius: 7, background: "#e8f5ec", color: "#176b40", fontSize: 14 }}>Outbound email provider confirms invoices@tccleaningaz.com is authorized to send.</p>}
         {senderStatus === "not-ready" && <p role="alert" style={{ padding: 10, borderRadius: 7, background: "#fff4dc", color: "#775715", fontSize: 14 }}>The configured email provider has not verified tccleaningaz.com for sending. Cloudflare email routing receives mail but does not authorize outbound sending. You can save invoices as drafts; sending will stay blocked until the domain is verified with the outbound email provider.</p>}
-        {senderStatus === "unknown" && <p style={{ color: "#775715", fontSize: 14 }}>Sender verification status is unavailable. The provider will confirm the sender when you send an invoice.</p>}
+        {senderStatus === "unknown" && <p style={{ color: "#775715", fontSize: 14 }}>Sender verification status is unavailable. You may save a draft; if you try sending, the email provider will confirm whether this sender is authorized.</p>}
         <button disabled={busy} type="submit" style={{ ...buttonStyle, opacity: busy ? .65 : 1 }}>{busy ? "Saving…" : "Save invoice draft"}</button>
       </form>
     </section>
@@ -156,7 +156,7 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div><h2 style={{ margin: 0 }}>Invoices</h2><p style={{ color: "#687786", marginBottom: 0 }}>Drafts are saved in the business database. Sending is a separate, confirmed action.</p></div><input aria-label="Search invoices" placeholder="Search invoices" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...fieldStyle, maxWidth: 260 }} /></div>
       <div style={{ display: "grid", gap: 12, marginTop: 18 }}>{visible.length === 0 ? <p style={{ color: "#687786" }}>{filter ? "No matching invoices." : "No invoices yet. Saved drafts will appear here."}</p> : visible.map((invoice) => <article key={invoice.id} style={{ border: "1px solid #e3e9ed", borderRadius: 9, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <div><strong>{invoice.invoice_number}</strong><span style={{ display: "inline-block", marginLeft: 10, padding: "3px 8px", borderRadius: 99, background: invoice.status === "paid" ? "#e5f4e9" : invoice.status === "sent" ? "#e8f0fa" : "#fff4dc", color: "#354858", fontSize: 12, textTransform: "capitalize" }}>{invoice.status}</span><p style={{ margin: "7px 0 0", color: "#52616d" }}>{invoice.client_name} · {invoice.client_email}</p><p style={{ margin: "4px 0 0", color: "#687786", fontSize: 14 }}>Due {invoice.due_date} · {usd(invoice.total_cents)}</p></div>
-        {invoice.status === "draft" && <button disabled={busy || senderStatus !== "ready"} onClick={() => void actOnInvoice(invoice, "send")} style={{ ...buttonStyle, opacity: busy || senderStatus !== "ready" ? .55 : 1 }} title={senderStatus === "ready" ? "Confirm the recipient before sending" : "Verify invoices@tccleaningaz.com with the outbound email provider first"}>Review &amp; send</button>}{invoice.status === "sent" && <button disabled={busy} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763" }}>Mark paid</button>}
+        {invoice.status === "draft" && <button disabled={busy || senderStatus === "checking" || senderStatus === "not-ready"} onClick={() => void actOnInvoice(invoice, "send")} style={{ ...buttonStyle, opacity: busy || senderStatus === "checking" || senderStatus === "not-ready" ? .55 : 1 }} title={senderStatus === "ready" || senderStatus === "unknown" ? "Confirm the recipient before sending" : "Verify invoices@tccleaningaz.com with the outbound email provider first"}>Review &amp; send</button>}{invoice.status === "sent" && <button disabled={busy} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763" }}>Mark paid</button>}
       </article>)}</div>
     </section>
   </div>;

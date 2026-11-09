@@ -668,14 +668,14 @@ const worker = {
           const response = await fetch("https://api.resend.com/domains", {
             headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
           });
-          if (!response.ok) return json({ senderReady: false, reason: "unavailable" }, 200);
+          if (!response.ok) return json({ senderReady: null, reason: "unavailable" }, 200);
           const data: unknown = await response.json();
           const domains = isRecord(data) && Array.isArray(data.data) ? data.data : [];
           const domain = domains.find((entry) => isRecord(entry) && entry.name === "tccleaningaz.com");
           const senderReady = Boolean(isRecord(domain) && domain.status === "verified");
           return json({ senderReady, reason: senderReady ? "verified" : "verify_sender" });
         } catch {
-          return json({ senderReady: false, reason: "unavailable" }, 200);
+          return json({ senderReady: null, reason: "unavailable" }, 200);
         }
       }
 
