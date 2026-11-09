@@ -55,6 +55,76 @@ interface ArticleInput {
   status: ArticleStatus;
 }
 
+interface ClientInput {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  squareFeet: number | null;
+  propertyType: string;
+  frequencyCategory: string;
+  serviceNotes: string;
+  propertyId?: string;
+}
+
+function parseClientInput(value: unknown): ClientInput | null {
+  if (!isRecord(value)) return null;
+  const text = (key: string, fallback = "") => isText(value[key]) ? value[key].trim() : fallback;
+  const integer = (key: string, min: number, max: number): number | null => {
+    const input = value[key];
+    if (input === "" || input === null || input === undefined) return null;
+    const number = typeof input === "number" ? input : Number(input);
+    return Number.isInteger(number) && number >= min && number <= max ? number : Number.NaN;
+  };
+  const decimal = (key: string, min: number, max: number): number | null => {
+    const input = value[key];
+    if (input === "" || input === null || input === undefined) return null;
+    const number = typeof input === "number" ? input : Number(input);
+    return Number.isFinite(number) && number >= min && number <= max ? number : Number.NaN;
+  };
+
+  const firstName = text("firstName");
+  const lastName = text("lastName");
+  const phone = text("phone");
+  const email = text("email").toLowerCase();
+  const addressLine1 = text("addressLine1");
+  const addressLine2 = text("addressLine2");
+  const city = text("city");
+  const state = text("state", "AZ").toUpperCase();
+  const zipCode = text("zipCode");
+  const bedrooms = integer("bedrooms", 0, 20);
+  const bathrooms = decimal("bathrooms", 0, 20);
+  const squareFeet = integer("squareFeet", 1, 100000);
+  const propertyType = text("propertyType");
+  const frequencyCategory = text("frequencyCategory");
+  const serviceNotes = text("serviceNotes");
+  const propertyId = text("propertyId");
+
+  if (
+    !firstName || firstName.length > 80 || !lastName || lastName.length > 80 ||
+    phone.length > 30 || (phone && (!/^[+\d().\-\s]+$/.test(phone) || phone.replace(/\D/g, "").length < 7)) || (!phone && !email) ||
+    email.length > 254 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ||
+    !addressLine1 || addressLine1.length > 120 || addressLine2.length > 80 ||
+    !city || city.length > 80 || !/^[A-Z]{2}$/.test(state) || !/^\d{5}(?:-\d{4})?$/.test(zipCode) ||
+    Number.isNaN(bedrooms) || Number.isNaN(bathrooms) || Number.isNaN(squareFeet) ||
+    propertyType.length > 60 || frequencyCategory.length > 80 || serviceNotes.length > 5000 ||
+    (propertyId && !/^[0-9a-f-]{36}$/i.test(propertyId))
+  ) return null;
+
+  return {
+    firstName, lastName, phone, email, addressLine1, addressLine2, city, state,
+    zipCode, bedrooms, bathrooms, squareFeet, propertyType, frequencyCategory,
+    serviceNotes, ...(propertyId ? { propertyId } : {}),
+  };
+}
+
 function toArticle(row: ArticleRow) {
   return {
     id: row.id,
@@ -242,11 +312,13 @@ const worker = {
     const path = url.pathname.replace(/\/$/, "") || "/";
     const publicArticleMatch = path.match(/^\/articles\/([^/]+)$/);
     const managerArticleMatch = path.match(/^\/manager-articles\/([^/]+)$/);
+    const managerCustomerMatch = path.match(/^\/manager-customers\/([^/]+)$/);
     const publicArticleRoute = path === "/articles" || Boolean(publicArticleMatch);
     const managerArticleRoute = path === "/manager-articles" || Boolean(managerArticleMatch);
+    const managerCustomerRoute = path === "/manager-customers" || Boolean(managerCustomerMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!publicArticleRoute && !managerArticleRoute && !existingRoute) {
+    if (!publicArticleRoute && !managerArticleRoute && !managerCustomerRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
@@ -437,6 +509,93 @@ const worker = {
       }
     }
 
+    if (managerCustomerRoute) {
+      if (path !== "/manager-customers" && !managerCustomerMatch) return json({ error: "Not found" }, 404);
+      if (request.method !== "POST" && request.method !== "PATCH") return json({ error: "Method not allowed" }, 405);
+      if (request.method === "POST" && path !== "/manager-customers") return json({ error: "Method not allowed" }, 405);
+      if (request.method === "PATCH" && !managerCustomerMatch) return json({ error: "Method not allowed" }, 405);
+      if (request.method === "PATCH" && !/^[0-9a-f-]{36}$/i.test(managerCustomerMatch![1])) return json({ error: "Client not found." }, 404);
+      if (!request.headers.get("Content-Type")?.includes("application/json")) return json({ error: "JSON required" }, 415);
+
+      let text: string;
+      try { text = await request.text(); }
+      catch { return json({ error: "Could not read client information." }, 400); }
+      if (new TextEncoder().encode(text).length > 12000) return json({ error: "Client information is too large." }, 413);
+
+      let input: ClientInput | null;
+      try { input = parseClientInput(JSON.parse(text)); }
+      catch { return json({ error: "Invalid client information." }, 400); }
+      if (!input) return json({ error: "Please check the client and property information." }, 400);
+
+      const customerId = request.method === "POST" ? crypto.randomUUID() : managerCustomerMatch![1];
+      const propertyId = input.propertyId || crypto.randomUUID();
+      try {
+        if (request.method === "POST") {
+          await env.DB.batch([
+            env.DB.prepare(`
+              INSERT INTO customers
+                (id, first_name, last_name, phone, email, preferred_contact, customer_status)
+              VALUES (?, ?, ?, ?, ?, ?, 'active')
+            `).bind(customerId, input.firstName, input.lastName, input.phone || null, input.email || null, input.email && !input.phone ? "email" : "phone"),
+            env.DB.prepare(`
+              INSERT INTO properties
+                (id, customer_id, address_line1, address_line2, city, state, zip_code,
+                 bedrooms, bathrooms, square_feet, property_type)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(propertyId, customerId, input.addressLine1, input.addressLine2 || null, input.city, input.state, input.zipCode, input.bedrooms, input.bathrooms, input.squareFeet, input.propertyType || null),
+            env.DB.prepare(`
+              INSERT INTO client_management_details
+                (customer_id, display_name, frequency_category, service_notes)
+              VALUES (?, ?, ?, ?)
+            `).bind(customerId, `${input.firstName} ${input.lastName}`, input.frequencyCategory || null, input.serviceNotes),
+          ]);
+          return json({ success: true, customerId }, 201);
+        }
+
+        const existingCustomer = await env.DB.prepare("SELECT id FROM customers WHERE id = ?").bind(customerId).first<{ id: string }>();
+        if (!existingCustomer) return json({ error: "Client not found." }, 404);
+        if (input.propertyId) {
+          const existingProperty = await env.DB.prepare("SELECT id FROM properties WHERE id = ? AND customer_id = ?").bind(input.propertyId, customerId).first<{ id: string }>();
+          if (!existingProperty) return json({ error: "Property not found." }, 404);
+        }
+
+        const result = await env.DB.batch([
+          env.DB.prepare(`
+            UPDATE customers
+            SET first_name = ?, last_name = ?, phone = ?, email = ?, preferred_contact = ?, customer_status = 'active'
+            WHERE id = ?
+          `).bind(input.firstName, input.lastName, input.phone || null, input.email || null, input.email && !input.phone ? "email" : "phone", customerId),
+          input.propertyId
+            ? env.DB.prepare(`
+                UPDATE properties
+                SET address_line1 = ?, address_line2 = ?, city = ?, state = ?, zip_code = ?,
+                    bedrooms = ?, bathrooms = ?, square_feet = ?, property_type = ?
+                WHERE id = ? AND customer_id = ?
+              `).bind(input.addressLine1, input.addressLine2 || null, input.city, input.state, input.zipCode, input.bedrooms, input.bathrooms, input.squareFeet, input.propertyType || null, propertyId, customerId)
+            : env.DB.prepare(`
+                INSERT INTO properties
+                  (id, customer_id, address_line1, address_line2, city, state, zip_code,
+                   bedrooms, bathrooms, square_feet, property_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).bind(propertyId, customerId, input.addressLine1, input.addressLine2 || null, input.city, input.state, input.zipCode, input.bedrooms, input.bathrooms, input.squareFeet, input.propertyType || null),
+          env.DB.prepare(`
+            INSERT INTO client_management_details (customer_id, display_name, frequency_category, service_notes)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(customer_id) DO UPDATE SET
+              display_name = excluded.display_name,
+              frequency_category = excluded.frequency_category,
+              service_notes = excluded.service_notes,
+              updated_at = CURRENT_TIMESTAMP
+          `).bind(customerId, `${input.firstName} ${input.lastName}`, input.frequencyCategory || null, input.serviceNotes),
+        ]);
+        if (!result[0].meta.changes) return json({ error: "Client not found." }, 404);
+        return json({ success: true, customerId });
+      } catch (error) {
+        console.error("Client information could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "Client information could not be saved." }, 500);
+      }
+    }
+
     if (path === "/customers") {
       if (request.method !== "GET") {
         return json({ error: "Method not allowed" }, 405);
@@ -461,20 +620,21 @@ const worker = {
             p.bathrooms,
             p.square_feet,
             p.property_type,
-            cp.roster_name,
+            COALESCE(md.display_name, cp.roster_name, c.first_name || ' ' || c.last_name) AS roster_name,
             cp.alias_names,
-            cp.frequency_category,
-            cp.property_source_text,
-            cp.service_notes,
-            cp.november_schedule_reference,
-            cp.payment_cross_reference,
+            COALESCE(md.frequency_category, cp.frequency_category) AS frequency_category,
+            COALESCE(cp.property_source_text, p.address_line1, '') AS property_source_text,
+            COALESCE(md.service_notes, cp.service_notes, '') AS service_notes,
+            COALESCE(cp.november_schedule_reference, '') AS november_schedule_reference,
+            COALESCE(cp.payment_cross_reference, '') AS payment_cross_reference,
             cp.review_flags,
-            cp.source_report_month
+            COALESCE(cp.source_report_month, '') AS source_report_month
           FROM customers c
-          JOIN client_profiles cp ON cp.customer_id = c.id
+          LEFT JOIN client_profiles cp ON cp.customer_id = c.id
+          LEFT JOIN client_management_details md ON md.customer_id = c.id
           LEFT JOIN properties p ON p.customer_id = c.id
           WHERE c.customer_status = 'active'
-          ORDER BY cp.roster_name COLLATE NOCASE
+          ORDER BY COALESCE(md.display_name, cp.roster_name, c.first_name || ' ' || c.last_name) COLLATE NOCASE
         `).all<Record<string, unknown>>();
 
         const batch = await env.DB.prepare(`

@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./customer-directory.module.css";
 
 export type CustomerRecord = {
   customer_id: string;
+  property_id: string | null;
   first_name: string;
   last_name: string;
   phone: string | null;
@@ -28,6 +30,80 @@ export type CustomerRecord = {
   review_flags: string | null;
   source_report_month: string;
 };
+
+type ClientFormValues = {
+  firstName: string; lastName: string; phone: string; email: string;
+  addressLine1: string; addressLine2: string; city: string; state: string;
+  zipCode: string; bedrooms: string; bathrooms: string; squareFeet: string;
+  propertyType: string; frequencyCategory: string; serviceNotes: string;
+};
+
+function clientFormValues(customer?: CustomerRecord): ClientFormValues {
+  return {
+    firstName: customer?.first_name || "",
+    lastName: customer?.last_name || "",
+    phone: customer?.phone || "", email: customer?.email || "",
+    addressLine1: customer?.address_line1 || "", addressLine2: customer?.address_line2 || "",
+    city: customer?.city || "", state: customer?.state || "AZ", zipCode: customer?.zip_code || "",
+    bedrooms: customer?.bedrooms == null ? "" : String(customer.bedrooms),
+    bathrooms: customer?.bathrooms == null ? "" : String(customer.bathrooms),
+    squareFeet: customer?.square_feet == null ? "" : String(customer.square_feet),
+    propertyType: customer?.property_type || "", frequencyCategory: customer?.frequency_category || "",
+    serviceNotes: customer?.service_notes || "",
+  };
+}
+
+function ClientForm({ customer, onCancel, onSaved }: { customer?: CustomerRecord; onCancel: () => void; onSaved: () => void }) {
+  const [values, setValues] = useState(() => clientFormValues(customer));
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true); setMessage(""); setError(false);
+    const payload = {
+      ...values,
+      bedrooms: values.bedrooms ? Number(values.bedrooms) : null,
+      bathrooms: values.bathrooms ? Number(values.bathrooms) : null,
+      squareFeet: values.squareFeet ? Number(values.squareFeet) : null,
+      ...(customer?.property_id ? { propertyId: customer.property_id } : {}),
+    };
+    try {
+      const response = await fetch(customer ? `/api/manager/customers/${customer.customer_id}` : "/api/manager/customers", {
+        method: customer ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Client details could not be saved.");
+      setMessage(customer ? "Client information updated." : "Client added to the directory.");
+      onSaved();
+    } catch (reason) {
+      setError(true);
+      setMessage(reason instanceof Error ? reason.message : "Client details could not be saved.");
+    } finally { setSaving(false); }
+  }
+
+  function field(key: keyof ClientFormValues, label: string, options: { required?: boolean; type?: string; placeholder?: string; wide?: boolean; step?: string } = {}) {
+    return <label className={options.wide ? styles.formFieldWide : undefined} key={key}><span>{label}{options.required ? " *" : ""}</span><input type={options.type || "text"} step={options.step} required={options.required} value={values[key]} placeholder={options.placeholder} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /></label>;
+  }
+
+  return <form className={styles.clientForm} onSubmit={submit}>
+    <div className={styles.formHeading}><div><h3>{customer ? `Update ${customer.roster_name}` : "New client details"}</h3><p>Enter the client and property information below. At least one phone number or email is needed.</p></div><button type="button" className={styles.formClose} onClick={onCancel} aria-label="Close client form">×</button></div>
+    <div className={styles.formGrid}>
+      {field("firstName", "First name", { required: true })}{field("lastName", "Last name", { required: true })}
+      {field("phone", "Phone", { type: "tel", placeholder: "(480) 555-0100" })}{field("email", "Email", { type: "email" })}
+      {field("addressLine1", "Street address", { required: true, wide: true })}{field("addressLine2", "Unit / apartment")}
+      {field("city", "City", { required: true })}{field("state", "State", { required: true })}{field("zipCode", "ZIP code", { required: true })}
+      {field("bedrooms", "Bedrooms", { type: "number", step: "1" })}{field("bathrooms", "Bathrooms", { type: "number", step: "0.5" })}{field("squareFeet", "Square feet", { type: "number", step: "1" })}
+      {field("propertyType", "Property type", { placeholder: "House, condo, apartment…" })}{field("frequencyCategory", "Service frequency", { placeholder: "Weekly, biweekly, one-time…" })}
+      <label className={`${styles.formFieldWide} ${styles.notesField}`}><span>Service notes</span><textarea rows={4} value={values.serviceNotes} onChange={(event) => setValues({ ...values, serviceNotes: event.target.value })} placeholder="Access details, client preferences, or agreed service scope" /></label>
+    </div>
+    {message && <p className={error ? styles.formError : styles.formSuccess} role={error ? "alert" : "status"}>{message}</p>}
+    <div className={styles.formActions}><button type="button" className={styles.cancelButton} onClick={onCancel}>Cancel</button><button type="submit" disabled={saving}>{saving ? "Saving…" : customer ? "Save client changes" : "Add client"}</button></div>
+  </form>;
+}
 
 export type ImportBatch = {
   id: string;
@@ -75,6 +151,9 @@ export default function CustomerDirectory({
   importBatch: ImportBatch | null;
 }) {
   const [search, setSearch] = useState("");
+  const [showIntake, setShowIntake] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<CustomerRecord | null>(null);
+  const router = useRouter();
   const revenueSnapshot: RevenueSnapshot = useMemo(() => {
     if (!importBatch) return {};
     try {
@@ -91,6 +170,7 @@ export default function CustomerDirectory({
       customer.roster_name,
       customer.alias_names,
       customer.phone,
+      customer.email,
       customer.address_line1,
       customer.address_line2,
       customer.city,
@@ -139,7 +219,10 @@ export default function CustomerDirectory({
             placeholder="Name, city, service, or address"
           />
         </label>
+        <button className={styles.addClientButton} type="button" onClick={() => { setEditingCustomer(null); setShowIntake((visible) => !visible); }}>+ Add new client</button>
       </div>
+
+      {showIntake && <ClientForm onCancel={() => setShowIntake(false)} onSaved={() => { setShowIntake(false); router.refresh(); }} />}
 
       {visibleCustomers.length ? (
         <div className={styles.customerGrid}>
@@ -187,6 +270,10 @@ export default function CustomerDirectory({
                   <p>{customer.payment_cross_reference}</p>
                   <small>A roster cross-reference, not an individual payment ledger. “No confident match” does not mean unpaid.</small>
                 </details>
+                <button type="button" className={styles.editClientButton} onClick={() => { setShowIntake(false); setEditingCustomer((current) => current?.customer_id === customer.customer_id && current.property_id === customer.property_id ? null : customer); }}>
+                  {editingCustomer?.customer_id === customer.customer_id && editingCustomer.property_id === customer.property_id ? "Cancel editing" : "Edit client information"}
+                </button>
+                {editingCustomer?.customer_id === customer.customer_id && editingCustomer.property_id === customer.property_id && <ClientForm customer={customer} onCancel={() => setEditingCustomer(null)} onSaved={() => { setEditingCustomer(null); router.refresh(); }} />}
               </article>
             );
           })}

@@ -84,6 +84,52 @@
   margin: 25px 0 16px;
 }
 
+.addClientButton,
+.editClientButton,
+.formActions button {
+  min-height: 42px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 7px;
+  background: #16834a;
+  color: white;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.addClientButton { flex: 0 0 auto; }
+.editClientButton { width: 100%; margin-top: 15px; }
+.addClientButton:hover,.editClientButton:hover,.formActions button:hover { background: #116b3b; }
+
+.clientForm {
+  margin: 0 0 22px;
+  padding: 20px;
+  border: 1px solid #dbe6e0;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 4px 18px rgba(20, 55, 40, .06);
+}
+
+.formHeading { display: flex; justify-content: space-between; gap: 15px; margin-bottom: 17px; }
+.formHeading h3 { margin: 0; color: #172b3d; font-size: 19px; }
+.formHeading p { margin: 4px 0 0; color: #687786; font-size: 13px; }
+.formClose { width: 34px; height: 34px; border: 0; border-radius: 50%; background: #edf2f4; color: #304252; font-size: 24px; line-height: 1; cursor: pointer; }
+.formGrid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px; }
+.formGrid label { display: grid; align-content: start; gap: 5px; color: #526174; font-size: 12px; font-weight: 700; }
+.formFieldWide { grid-column: span 2; }
+.formGrid input,.formGrid textarea { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #ccd7de; border-radius: 7px; background: #fff; color: #172b3d; font: inherit; font-size: 14px; font-weight: 400; }
+.formGrid textarea { resize: vertical; }
+.formGrid input:focus-visible,.formGrid textarea:focus-visible { outline: 3px solid #16834a; outline-offset: 1px; }
+.notesField { grid-column: 1/-1; }
+.formActions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 15px; }
+.formActions .cancelButton { background: #e8eef1; color: #304252; }
+.formActions button:disabled { opacity: .65; cursor: wait; }
+.formSuccess,.formError { margin: 12px 0 0; font-size: 13px; font-weight: 700; }
+.formSuccess { color: #16834a; }
+.formError { color: #a43d35; }
+
 .directoryToolbar > div > p {
   margin: 5px 0 0;
   color: #687786;
@@ -252,6 +298,9 @@
     gap: 12px;
   }
 
+  .formGrid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .addClientButton { width: 100%; }
+
   .searchLabel {
     width: 100%;
   }
@@ -259,4 +308,12 @@
   .customerCard {
     padding: 14px;
   }
+}
+
+@media(max-width:430px) {
+  .clientForm { padding: 15px 12px; }
+  .formGrid { grid-template-columns: 1fr; }
+  .formFieldWide,.notesField { grid-column: auto; }
+  .formActions { flex-direction: column-reverse; }
+  .formActions button { width: 100%; }
 }
