@@ -173,7 +173,7 @@ export default async function ManagerDashboard({
             ["Scheduling & Dispatch", "Manage appointments, routes and crew assignments."],
             ["Customers & Properties", "Access customer and property records."],
             ["Cleaning Articles", "Write and publish helpful cleaning advice for the community."],
-            ["Estimates & Pricing", "Review quotes and deep-clean profitability."],
+            ["Estimates & Pricing", "Create branded invoices for existing and new clients."],
             ["Employees & Payroll", "Manage workforce information and labor costs."],
             ["Expenses & Payments", "Review business expenses and payments."],
             ["Business Reports", "Monitor company performance and financial results."]
@@ -189,7 +189,7 @@ export default async function ManagerDashboard({
                 <h3 style={{ marginTop: 0 }}>{title}</h3>
                 <p style={{ color: "#687786", lineHeight: 1.6 }}>{description}</p>
                 <span style={{ color: "#16834a", fontSize: "13px", fontWeight: 700 }}>
-                  {title === "Customers & Properties" ? "Open client directory" : title === "Cleaning Articles" ? "Write and publish articles" : "Coming soon"}
+                  {title === "Customers & Properties" ? "Open client directory" : title === "Cleaning Articles" ? "Write and publish articles" : title === "Estimates & Pricing" ? "Create and send invoices" : "Coming soon"}
                 </span>
               </article>
             );
@@ -200,6 +200,8 @@ export default async function ManagerDashboard({
               </Link>
             ) : title === "Cleaning Articles" ? (
               <Link key={title} href="/manager/articles" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
+            ) : title === "Estimates & Pricing" ? (
+              <Link key={title} href="/manager/invoices" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
             ) : (
               <div key={title}>{card}</div>
             );

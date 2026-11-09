@@ -32,6 +32,68 @@ interface QuotePayload {
   addons: string[];
 }
 
+interface InvoiceLineInput { description: string; quantity: number; unitPrice: number }
+interface InvoiceInput {
+  customerId: string;
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  billingAddress: string;
+  issueDate: string;
+  dueDate: string;
+  notes: string;
+  taxPercent: number;
+  items: InvoiceLineInput[];
+}
+
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+}[char]!));
+
+function parseInvoiceInput(value: unknown): InvoiceInput | null {
+  if (!isRecord(value) || !Array.isArray(value.items) || value.items.length < 1 || value.items.length > 30) return null;
+  const text = (key: string, max: number, required = false) => {
+    const entry = value[key];
+    if (typeof entry !== "string" || entry.trim().length > max || (required && !entry.trim())) return null;
+    return entry.trim();
+  };
+  const customerId = text("customerId", 36) || "";
+  const clientName = text("clientName", 160, true);
+  const clientEmail = text("clientEmail", 254, true);
+  const clientPhone = text("clientPhone", 50);
+  const billingAddress = text("billingAddress", 500);
+  const issueDate = text("issueDate", 10, true);
+  const dueDate = text("dueDate", 10, true);
+  const notes = text("notes", 2000);
+  const taxPercent = value.taxPercent;
+  if (clientName === null || clientEmail === null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail) || clientPhone === null || billingAddress === null || issueDate === null || dueDate === null || notes === null || !/^\d{4}-\d{2}-\d{2}$/.test(issueDate) || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || typeof taxPercent !== "number" || !Number.isFinite(taxPercent) || taxPercent < 0 || taxPercent > 20) return null;
+  const items: InvoiceLineInput[] = [];
+  for (const raw of value.items) {
+    if (!isRecord(raw) || typeof raw.description !== "string" || !raw.description.trim() || raw.description.length > 240 || typeof raw.quantity !== "number" || !Number.isFinite(raw.quantity) || raw.quantity <= 0 || raw.quantity > 10000 || typeof raw.unitPrice !== "number" || !Number.isFinite(raw.unitPrice) || raw.unitPrice < 0 || raw.unitPrice > 1000000) return null;
+    items.push({ description: raw.description.trim(), quantity: raw.quantity, unitPrice: raw.unitPrice });
+  }
+  return { customerId, clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, taxPercent, items };
+}
+
+function money(cents: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+
+function invoiceEmailHtml(invoice: InvoiceRow, items: InvoiceItemRow[]) {
+  const rows = items.map((item) => `<tr><td style="padding:12px;border-bottom:1px solid #e6ebef">${escapeHtml(item.description)}</td><td style="padding:12px;text-align:center;border-bottom:1px solid #e6ebef">${item.quantity}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.unit_price_cents)}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.line_total_cents)}</td></tr>`).join("");
+  const address = invoice.billing_address ? `<br>${escapeHtml(invoice.billing_address).replace(/\n/g, "<br>")}` : "";
+  const notes = invoice.notes ? `<p style="white-space:pre-line;color:#52616d">${escapeHtml(invoice.notes)}</p>` : "";
+  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Total <strong>${money(invoice.total_cents)}</strong></p></div>${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
+}
+
+interface InvoiceRow {
+  id: string; invoice_number: string; customer_id: string | null; client_name: string; client_email: string;
+  client_phone: string; billing_address: string; issue_date: string; due_date: string; notes: string;
+  status: string; subtotal_cents: number; tax_cents: number; total_cents: number; sent_at: string | null;
+  created_at: string; items?: InvoiceItemRow[];
+}
+interface InvoiceItemRow { id: string; description: string; quantity: number; unit_price_cents: number; line_total_cents: number }
+
 type ArticleStatus = "draft" | "published";
 
 interface ArticleRow {
@@ -313,12 +375,16 @@ const worker = {
     const publicArticleMatch = path.match(/^\/articles\/([^/]+)$/);
     const managerArticleMatch = path.match(/^\/manager-articles\/([^/]+)$/);
     const managerCustomerMatch = path.match(/^\/manager-customers\/([^/]+)$/);
+    const managerInvoiceSendMatch = path.match(/^\/manager-invoices\/([^/]+)\/send$/);
+    const managerInvoicePaidMatch = path.match(/^\/manager-invoices\/([^/]+)\/paid$/);
+    const managerInvoiceMatch = path.match(/^\/manager-invoices\/([^/]+)$/);
     const publicArticleRoute = path === "/articles" || Boolean(publicArticleMatch);
     const managerArticleRoute = path === "/manager-articles" || Boolean(managerArticleMatch);
     const managerCustomerRoute = path === "/manager-customers" || Boolean(managerCustomerMatch);
+    const managerInvoiceRoute = path === "/manager-invoices" || path === "/manager-invoice-sender-status" || Boolean(managerInvoiceMatch) || Boolean(managerInvoiceSendMatch) || Boolean(managerInvoicePaidMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!publicArticleRoute && !managerArticleRoute && !managerCustomerRoute && !existingRoute) {
+    if (!publicArticleRoute && !managerArticleRoute && !managerCustomerRoute && !managerInvoiceRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
@@ -594,6 +660,125 @@ const worker = {
         console.error("Client information could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
         return json({ error: "Client information could not be saved." }, 500);
       }
+    }
+
+    if (managerInvoiceRoute) {
+      if (request.method === "GET" && path === "/manager-invoice-sender-status") {
+        try {
+          const response = await fetch("https://api.resend.com/domains", {
+            headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
+          });
+          if (!response.ok) return json({ senderReady: false, reason: "unavailable" }, 200);
+          const data: unknown = await response.json();
+          const domains = isRecord(data) && Array.isArray(data.data) ? data.data : [];
+          const domain = domains.find((entry) => isRecord(entry) && entry.name === "tccleaningaz.com");
+          const senderReady = Boolean(isRecord(domain) && domain.status === "verified");
+          return json({ senderReady, reason: senderReady ? "verified" : "verify_sender" });
+        } catch {
+          return json({ senderReady: false, reason: "unavailable" }, 200);
+        }
+      }
+
+      if (request.method === "GET" && path === "/manager-invoices") {
+        try {
+          const result = await env.DB.prepare(`
+            SELECT i.*, COALESCE(SUM(ii.line_total_cents), 0) AS item_total_cents
+            FROM invoices i LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
+            GROUP BY i.id ORDER BY i.created_at DESC LIMIT 200
+          `).all<InvoiceRow>();
+          return json({ success: true, invoices: result.results || [] });
+        } catch (error) {
+          console.error("Invoice list could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Invoices are temporarily unavailable." }, 500);
+        }
+      }
+
+      if (request.method === "POST" && path === "/manager-invoices") {
+        if (!request.headers.get("Content-Type")?.includes("application/json")) return json({ error: "JSON required." }, 415);
+        let input: InvoiceInput | null;
+        try { input = parseInvoiceInput(await request.json()); } catch { input = null; }
+        if (!input) return json({ error: "Check the client details, dates, line items, and tax rate." }, 400);
+        if (input.customerId && !/^[0-9a-f-]{36}$/i.test(input.customerId)) return json({ error: "Selected client is invalid." }, 400);
+        const id = crypto.randomUUID();
+        const invoiceNumber = `TC-${input.issueDate.replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`;
+        const itemRows = input.items.map((item) => ({
+          ...item,
+          unitPriceCents: Math.round(item.unitPrice * 100),
+          lineTotalCents: Math.round(item.unitPrice * 100 * item.quantity),
+        }));
+        if (itemRows.some((item) => !Number.isSafeInteger(item.lineTotalCents))) return json({ error: "An invoice line amount is too large." }, 400);
+        const subtotal = itemRows.reduce((sum, item) => sum + item.lineTotalCents, 0);
+        const tax = Math.round(subtotal * input.taxPercent / 100);
+        const total = subtotal + tax;
+        if (!Number.isSafeInteger(total)) return json({ error: "Invoice total is too large." }, 400);
+        try {
+          if (input.customerId) {
+            const customer = await env.DB.prepare("SELECT id FROM customers WHERE id = ? AND customer_status = 'active'").bind(input.customerId).first<{ id: string }>();
+            if (!customer) return json({ error: "Selected client was not found." }, 404);
+          }
+          const statements = [env.DB.prepare(`
+            INSERT INTO invoices (id, invoice_number, customer_id, client_name, client_email, client_phone, billing_address, issue_date, due_date, notes, subtotal_cents, tax_cents, total_cents)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(id, invoiceNumber, input.customerId || null, input.clientName, input.clientEmail, input.clientPhone, input.billingAddress, input.issueDate, input.dueDate, input.notes, subtotal, tax, total),
+          ...itemRows.map((item) => env.DB.prepare(`
+            INSERT INTO invoice_items (id, invoice_id, description, quantity, unit_price_cents, line_total_cents)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).bind(crypto.randomUUID(), id, item.description, item.quantity, item.unitPriceCents, item.lineTotalCents))];
+          await env.DB.batch(statements);
+          const invoice = await env.DB.prepare("SELECT * FROM invoices WHERE id = ?").bind(id).first<InvoiceRow>();
+          return json({ success: true, invoice }, 201);
+        } catch (error) {
+          console.error("Invoice draft could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Invoice draft could not be saved." }, 500);
+        }
+      }
+
+      if (request.method === "POST" && managerInvoiceSendMatch) {
+        const id = managerInvoiceSendMatch[1];
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
+        try {
+          const claimed = await env.DB.prepare("UPDATE invoices SET status = 'sending', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'draft'").bind(id).run();
+          if (!claimed.meta.changes) return json({ error: "Only a saved draft can be sent. Refresh the invoice list to see its latest status." }, 409);
+          const invoice = await env.DB.prepare("SELECT * FROM invoices WHERE id = ?").bind(id).first<InvoiceRow>();
+          const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
+          if (!invoice) throw new Error("Invoice record missing after send claim.");
+          const lines = (items.results || []).map((item) => `${item.description} | ${item.quantity} × ${money(item.unit_price_cents)} = ${money(item.line_total_cents)}`).join("\n");
+          const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
+          const emailResponse = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: "TC Cleaning Services <invoices@tccleaningaz.com>",
+              to: [invoice.client_email],
+              subject: `Invoice ${invoice.invoice_number} from TC Cleaning Services`,
+              text: textBody,
+              html: invoiceEmailHtml(invoice, items.results || []),
+            }),
+          });
+          if (!emailResponse.ok) {
+            const providerStatus = emailResponse.status;
+            await env.DB.prepare("UPDATE invoices SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
+            console.error("Invoice email provider rejected the message.", { providerStatus });
+            return json({ error: providerStatus === 403 || providerStatus === 422 ? "The email provider could not send from invoices@tccleaningaz.com. Confirm that this sender is verified in the outbound email service." : "The invoice email could not be sent. The draft is still saved." }, 502);
+          }
+          await env.DB.prepare("UPDATE invoices SET status = 'sent', sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
+          return json({ success: true });
+        } catch (error) {
+          await env.DB.prepare("UPDATE invoices SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run().catch(() => undefined);
+          console.error("Invoice email could not be sent.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "The invoice email could not be sent. The saved draft is available to retry." }, 502);
+        }
+      }
+
+      if (request.method === "POST" && managerInvoicePaidMatch) {
+        const id = managerInvoicePaidMatch[1];
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
+        const result = await env.DB.prepare("UPDATE invoices SET status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sent'").bind(id).run();
+        if (!result.meta.changes) return json({ error: "Only sent invoices can be marked paid." }, 409);
+        return json({ success: true });
+      }
+
+      return json({ error: "Method not allowed." }, 405);
     }
 
     if (path === "/customers") {

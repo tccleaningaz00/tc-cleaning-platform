@@ -1,0 +1,163 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+type Client = {
+  customer_id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+};
+type Line = { description: string; quantity: string; unitPrice: string };
+type Invoice = {
+  id: string; invoice_number: string; client_name: string; client_email: string;
+  issue_date: string; due_date: string; status: "draft" | "sending" | "sent" | "paid" | "void";
+  subtotal_cents: number; tax_cents: number; total_cents: number; created_at: string;
+};
+
+const fieldStyle = { width: "100%", boxSizing: "border-box" as const, padding: "11px 12px", border: "1px solid #cbd5dc", borderRadius: "7px", font: "inherit", color: "#172b3d", background: "#fff" };
+const labelStyle = { display: "grid", gap: "6px", color: "#465766", fontSize: "14px", fontWeight: 700 as const };
+const buttonStyle = { background: "#16834a", color: "white", border: 0, padding: "11px 16px", borderRadius: "7px", fontWeight: 700 as const, cursor: "pointer" };
+const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+const phoenixDate = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+
+export default function InvoiceManager({ clients }: { clients: Client[] }) {
+  const [existing, setExisting] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+  const [billingAddress, setBillingAddress] = useState("");
+  const [issueDate, setIssueDate] = useState(() => phoenixDate(new Date()));
+  const [dueDate, setDueDate] = useState(() => phoenixDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)));
+  const [notes, setNotes] = useState("");
+  const [taxPercent, setTaxPercent] = useState("0");
+  const [lines, setLines] = useState<Line[]>([{ description: "", quantity: "1", unitPrice: "" }]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("");
+  const [senderStatus, setSenderStatus] = useState<"checking" | "ready" | "not-ready" | "unknown">("checking");
+
+  useEffect(() => {
+    void loadInvoices();
+    void fetch("/api/manager/invoices/sender-status", { cache: "no-store" })
+      .then(async (response) => response.ok ? response.json() as Promise<{ senderReady?: boolean }> : null)
+      .then((data) => setSenderStatus(data ? (data.senderReady ? "ready" : "not-ready") : "unknown"))
+      .catch(() => setSenderStatus("unknown"));
+  }, []);
+
+  const totals = useMemo(() => {
+    const subtotal = lines.reduce((sum, line) => sum + Math.round((Number(line.unitPrice) || 0) * 100 * (Number(line.quantity) || 0)), 0);
+    const tax = Math.round(subtotal * (Number(taxPercent) || 0) / 100);
+    return { subtotal, tax, total: subtotal + tax };
+  }, [lines, taxPercent]);
+
+  async function loadInvoices() {
+    try {
+      const response = await fetch("/api/manager/invoices", { cache: "no-store" });
+      const data = await response.json() as { invoices?: Invoice[]; error?: string };
+      if (response.ok) setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
+    } catch { /* The draft form remains available if invoice history is temporarily unavailable. */ }
+  }
+
+  function chooseClient(id: string) {
+    setSelectedId(id);
+    const client = clients.find((item) => item.customer_id === id);
+    if (!client) return;
+    setClientName(`${client.first_name} ${client.last_name}`.trim());
+    setClientEmail(client.email || "");
+    setClientPhone(client.phone || "");
+    setBillingAddress([client.address_line1, client.address_line2, [client.city, client.state, client.zip_code].filter(Boolean).join(" ")].filter(Boolean).join("\n"));
+  }
+
+  async function saveDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/manager/invoices", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: existing ? selectedId : "", clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, taxPercent: Number(taxPercent), items: lines.map((line) => ({ description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })) }),
+      });
+      const data = await response.json() as { invoice?: { invoice_number?: string }; error?: string };
+      if (!response.ok) throw new Error(data.error || "The invoice draft could not be saved.");
+      setNotice(`Draft ${data.invoice?.invoice_number || "invoice"} saved. Review the recipient and details before sending.`);
+      setClientName(""); setClientEmail(""); setClientPhone(""); setBillingAddress(""); setSelectedId(""); setExisting(false); setNotes(""); setTaxPercent("0"); setLines([{ description: "", quantity: "1", unitPrice: "" }]);
+      await loadInvoices();
+    } catch (err) { setError(err instanceof Error ? err.message : "The invoice draft could not be saved."); }
+    finally { setBusy(false); }
+  }
+
+  async function actOnInvoice(invoice: Invoice, action: "send" | "paid") {
+    if (action === "send" && !window.confirm(`Send invoice ${invoice.invoice_number} to ${invoice.client_name} at ${invoice.client_email}? It will come from invoices@tccleaningaz.com.`)) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch(`/api/manager/invoices/${invoice.id}/${action}`, { method: "POST" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "That invoice action could not be completed.");
+      setNotice(action === "send" ? `Invoice ${invoice.invoice_number} was sent to ${invoice.client_email}.` : `Invoice ${invoice.invoice_number} marked paid.`);
+      await loadInvoices();
+    } catch (err) { setError(err instanceof Error ? err.message : "That invoice action could not be completed."); }
+    finally { setBusy(false); }
+  }
+
+  const visible = invoices.filter((invoice) => `${invoice.invoice_number} ${invoice.client_name} ${invoice.client_email} ${invoice.status}`.toLowerCase().includes(filter.toLowerCase()));
+
+  return <div style={{ marginTop: 28 }}>
+    <section style={{ background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 30px)", boxShadow: "0 3px 14px rgba(0,0,0,.04)" }}>
+      <p style={{ margin: "0 0 5px", color: "#16834a", fontWeight: 700, letterSpacing: ".08em", fontSize: 12 }}>TC CLEANING SERVICES AZ LLC</p>
+      <h2 style={{ margin: "0 0 8px", fontSize: 25 }}>Create an invoice</h2>
+      <p style={{ color: "#687786", lineHeight: 1.55, marginTop: 0 }}>Prepare a branded invoice for an existing client or a new customer. Save it as a draft, review the recipient and totals, then send it by email.</p>
+      {notice && <p role="status" style={{ padding: 12, borderRadius: 7, background: "#e8f5ec", color: "#176b40" }}>{notice}</p>}
+      {error && <p role="alert" style={{ padding: 12, borderRadius: 7, background: "#fff0ef", color: "#8a3028" }}>{error}</p>}
+      <form onSubmit={saveDraft}>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", margin: "18px 0" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, color: "#354858" }}><input type="radio" checked={!existing} onChange={() => { setExisting(false); setSelectedId(""); }} /> New client</label>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, color: "#354858" }}><input type="radio" checked={existing} onChange={() => setExisting(true)} /> Existing client</label>
+        </div>
+        {existing && <label style={{ ...labelStyle, maxWidth: 520, marginBottom: 16 }}>Choose a client<select required value={selectedId} onChange={(event) => chooseClient(event.target.value)} style={fieldStyle}><option value="">Select a client</option>{clients.map((client) => <option key={client.customer_id} value={client.customer_id}>{client.first_name} {client.last_name}{client.email ? ` · ${client.email}` : ""}</option>)}</select></label>}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 230px), 1fr))", gap: 14 }}>
+          <label style={labelStyle}>Client name<input required maxLength={160} value={clientName} onChange={(e) => setClientName(e.target.value)} style={fieldStyle} /></label>
+          <label style={labelStyle}>Email address<input required type="email" maxLength={254} value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} style={fieldStyle} /></label>
+          <label style={labelStyle}>Phone (optional)<input maxLength={50} value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} style={fieldStyle} /></label>
+          <label style={labelStyle}>Billing address<textarea rows={2} maxLength={500} value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} style={fieldStyle} /></label>
+          <label style={labelStyle}>Invoice date<input required type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} style={fieldStyle} /></label>
+          <label style={labelStyle}>Due date<input required type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={fieldStyle} /></label>
+        </div>
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}><h3 style={{ margin: 0 }}>Services and charges</h3><button type="button" onClick={() => setLines([...lines, { description: "", quantity: "1", unitPrice: "" }])} style={{ ...buttonStyle, background: "#e8f2eb", color: "#176b40" }}>+ Add line</button></div>
+          <div style={{ display: "grid", gap: 10, marginTop: 12 }}>{lines.map((line, index) => <div key={index} style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 95px 135px auto", gap: 9, alignItems: "end" }}>
+            <label style={labelStyle}>Description<input required maxLength={240} placeholder="e.g. Recurring home cleaning" value={line.description} onChange={(e) => setLines(lines.map((entry, i) => i === index ? { ...entry, description: e.target.value } : entry))} style={fieldStyle} /></label>
+            <label style={labelStyle}>Qty<input required type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => setLines(lines.map((entry, i) => i === index ? { ...entry, quantity: e.target.value } : entry))} style={fieldStyle} /></label>
+            <label style={labelStyle}>Rate ($)<input required type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => setLines(lines.map((entry, i) => i === index ? { ...entry, unitPrice: e.target.value } : entry))} style={fieldStyle} /></label>
+            <button type="button" aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines(lines.filter((_, i) => i !== index))} style={{ ...buttonStyle, background: "#f3f6f8", color: "#52616d", padding: "11px 12px", marginBottom: 1 }}>Remove</button>
+          </div>)}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 230px), 1fr))", gap: 14, marginTop: 18 }}>
+          <label style={labelStyle}>Tax (%)<input type="number" min="0" max="20" step="0.01" value={taxPercent} onChange={(e) => setTaxPercent(e.target.value)} style={fieldStyle} /></label>
+          <label style={labelStyle}>Notes for the client (optional)<textarea rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} style={fieldStyle} /></label>
+          <div style={{ borderRadius: 9, background: "#f3f6f8", padding: 16, alignSelf: "start", color: "#354858" }}><p style={{ margin: "0 0 8px", display: "flex", justifyContent: "space-between", gap: 24 }}>Subtotal <strong>{usd(totals.subtotal)}</strong></p><p style={{ margin: "0 0 8px", display: "flex", justifyContent: "space-between", gap: 24 }}>Tax <strong>{usd(totals.tax)}</strong></p><p style={{ margin: 0, paddingTop: 10, borderTop: "1px solid #d7e0e6", display: "flex", justifyContent: "space-between", gap: 24, fontSize: 19 }}>Total <strong>{usd(totals.total)}</strong></p></div>
+        </div>
+        <p style={{ color: "#687786", fontSize: 13 }}>The invoice is branded with the TC Cleaning logo and will be sent from invoices@tccleaningaz.com.</p>
+        {senderStatus === "ready" && <p role="status" style={{ padding: 10, borderRadius: 7, background: "#e8f5ec", color: "#176b40", fontSize: 14 }}>Outbound email provider confirms invoices@tccleaningaz.com is authorized to send.</p>}
+        {senderStatus === "not-ready" && <p role="alert" style={{ padding: 10, borderRadius: 7, background: "#fff4dc", color: "#775715", fontSize: 14 }}>The configured email provider has not verified tccleaningaz.com for sending. Cloudflare email routing receives mail but does not authorize outbound sending. You can save invoices as drafts; sending will stay blocked until the domain is verified with the outbound email provider.</p>}
+        {senderStatus === "unknown" && <p style={{ color: "#775715", fontSize: 14 }}>Sender verification status is unavailable. The provider will confirm the sender when you send an invoice.</p>}
+        <button disabled={busy} type="submit" style={{ ...buttonStyle, opacity: busy ? .65 : 1 }}>{busy ? "Saving…" : "Save invoice draft"}</button>
+      </form>
+    </section>
+
+    <section style={{ marginTop: 28, background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 30px)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div><h2 style={{ margin: 0 }}>Invoices</h2><p style={{ color: "#687786", marginBottom: 0 }}>Drafts are saved in the business database. Sending is a separate, confirmed action.</p></div><input aria-label="Search invoices" placeholder="Search invoices" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...fieldStyle, maxWidth: 260 }} /></div>
+      <div style={{ display: "grid", gap: 12, marginTop: 18 }}>{visible.length === 0 ? <p style={{ color: "#687786" }}>{filter ? "No matching invoices." : "No invoices yet. Saved drafts will appear here."}</p> : visible.map((invoice) => <article key={invoice.id} style={{ border: "1px solid #e3e9ed", borderRadius: 9, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div><strong>{invoice.invoice_number}</strong><span style={{ display: "inline-block", marginLeft: 10, padding: "3px 8px", borderRadius: 99, background: invoice.status === "paid" ? "#e5f4e9" : invoice.status === "sent" ? "#e8f0fa" : "#fff4dc", color: "#354858", fontSize: 12, textTransform: "capitalize" }}>{invoice.status}</span><p style={{ margin: "7px 0 0", color: "#52616d" }}>{invoice.client_name} · {invoice.client_email}</p><p style={{ margin: "4px 0 0", color: "#687786", fontSize: 14 }}>Due {invoice.due_date} · {usd(invoice.total_cents)}</p></div>
+        {invoice.status === "draft" && <button disabled={busy || senderStatus !== "ready"} onClick={() => void actOnInvoice(invoice, "send")} style={{ ...buttonStyle, opacity: busy || senderStatus !== "ready" ? .55 : 1 }} title={senderStatus === "ready" ? "Confirm the recipient before sending" : "Verify invoices@tccleaningaz.com with the outbound email provider first"}>Review &amp; send</button>}{invoice.status === "sent" && <button disabled={busy} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763" }}>Mark paid</button>}
+      </article>)}</div>
+    </section>
+  </div>;
+}
