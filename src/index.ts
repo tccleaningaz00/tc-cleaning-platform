@@ -126,6 +126,77 @@ interface InvoiceRow {
 }
 interface InvoiceItemRow { id: string; description: string; quantity: number; unit_price_cents: number; line_total_cents: number }
 
+interface ManagerEstimateInput {
+  sourceQuoteId: string; customerId: string; clientName: string; clientEmail: string; clientPhone: string;
+  propertyAddress: string; serviceType: string; scope: string; validUntil: string;
+  depositPercent: number; chasePaymentUrl: string; venmoUrl: string; zelleRecipient: string;
+  items: InvoiceLineInput[];
+}
+interface ManagerEstimateRow {
+  id: string; estimate_number: string; source_quote_id: string | null; customer_id: string | null; property_id: string | null;
+  client_name: string; client_email: string; client_phone: string; property_address: string; service_type: string;
+  scope: string; total_cents: number; deposit_percent: number; deposit_cents: number; status: string;
+  approval_token: string | null; chase_payment_url: string; venmo_url: string; zelle_recipient: string;
+  valid_until: string; sent_at: string | null; approved_at: string | null; deposit_paid_at: string | null;
+  created_at: string; items?: InvoiceItemRow[];
+}
+
+function parseManagerEstimateInput(value: unknown): ManagerEstimateInput | null {
+  if (!isRecord(value) || !Array.isArray(value.items) || value.items.length < 1 || value.items.length > 30) return null;
+  const text = (key: string, max: number, required = false) => {
+    const raw = value[key];
+    if (typeof raw !== "string" || raw.trim().length > max || (required && !raw.trim())) return null;
+    return raw.trim();
+  };
+  const sourceQuoteId = text("sourceQuoteId", 36) || "";
+  const customerId = text("customerId", 36) || "";
+  const clientName = text("clientName", 160, true);
+  const clientEmail = text("clientEmail", 254, true);
+  const clientPhone = text("clientPhone", 50);
+  const propertyAddress = text("propertyAddress", 500);
+  const serviceType = text("serviceType", 120, true);
+  const scope = text("scope", 4000);
+  const validUntil = text("validUntil", 10, true);
+  const depositPercent = value.depositPercent;
+  const url = (key: string) => {
+    const raw = value[key];
+    if (raw === undefined || raw === "") return "";
+    if (typeof raw !== "string" || raw.length > 2048) return null;
+    try { const parsed = new URL(raw); return parsed.protocol === "https:" ? parsed.toString() : null; }
+    catch { return null; }
+  };
+  const chasePaymentUrl = url("chasePaymentUrl");
+  const venmoUrl = url("venmoUrl");
+  const zelleRecipient = text("zelleRecipient", 80);
+  if (clientName === null || clientEmail === null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail) || clientPhone === null || propertyAddress === null || serviceType === null || scope === null || validUntil === null || !/^\d{4}-\d{2}-\d{2}$/.test(validUntil) || typeof depositPercent !== "number" || !Number.isFinite(depositPercent) || depositPercent <= 0 || depositPercent > 100 || chasePaymentUrl === null || venmoUrl === null || zelleRecipient === null) return null;
+  const items: InvoiceLineInput[] = [];
+  for (const raw of value.items) {
+    if (!isRecord(raw) || typeof raw.description !== "string" || !raw.description.trim() || raw.description.length > 240 || typeof raw.quantity !== "number" || !Number.isFinite(raw.quantity) || raw.quantity <= 0 || raw.quantity > 10000 || typeof raw.unitPrice !== "number" || !Number.isFinite(raw.unitPrice) || raw.unitPrice < 0 || raw.unitPrice > 1000000) return null;
+    items.push({ description: raw.description.trim(), quantity: raw.quantity, unitPrice: raw.unitPrice });
+  }
+  return { sourceQuoteId, customerId, clientName, clientEmail, clientPhone, propertyAddress, serviceType, scope, validUntil, depositPercent, chasePaymentUrl, venmoUrl, zelleRecipient, items };
+}
+
+function estimateEmailHtml(estimate: ManagerEstimateRow, items: InvoiceItemRow[], publicUrl: string) {
+  const rows = items.map((item) => `<tr><td style="padding:12px;border-bottom:1px solid #e6ebef">${escapeHtml(item.description)}</td><td style="padding:12px;text-align:center;border-bottom:1px solid #e6ebef">${item.quantity}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.line_total_cents)}</td></tr>`).join("");
+  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">CLEANING ESTIMATE ${escapeHtml(estimate.estimate_number)}</p><h1 style="margin:0;font-size:26px">${money(estimate.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(estimate.client_name)},</p><p>Here is your cleaning estimate from TC Cleaning Services. Please review the scope and line items below. This estimate is valid through <strong>${escapeHtml(estimate.valid_until)}</strong>.</p><p><strong>Service:</strong> ${escapeHtml(estimate.service_type)}<br><strong>Property:</strong> ${escapeHtml(estimate.property_address)}</p>${estimate.scope ? `<p style="white-space:pre-line">${escapeHtml(estimate.scope)}</p>` : ""}<table style="width:100%;border-collapse:collapse"><tbody>${rows}</tbody></table><p style="text-align:right;font-size:21px"><strong>Total: ${money(estimate.total_cents)}</strong></p><div style="margin:24px 0;padding:16px;background:#eef7f0;border-radius:8px"><strong>Deposit to begin: ${money(estimate.deposit_cents)} (${estimate.deposit_percent}%)</strong></div><p style="text-align:center;margin:28px 0"><a href="${escapeHtml(publicUrl)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#18834a;color:#fff;text-decoration:none;font-weight:bold">Review and approve estimate</a></p><p style="color:#687786;font-size:13px">Payment options for the deposit are shown after you approve. Payments are confirmed by TC Cleaning Services.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
+}
+
+function publicEstimatePayload(estimate: ManagerEstimateRow, items: InvoiceItemRow[]) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix" }).format(new Date());
+  return {
+    estimateNumber: estimate.estimate_number, clientName: estimate.client_name, propertyAddress: estimate.property_address,
+    serviceType: estimate.service_type, scope: estimate.scope, totalCents: estimate.total_cents,
+    depositPercent: estimate.deposit_percent, depositCents: estimate.deposit_cents,
+    status: estimate.status === "sent" && estimate.valid_until < today ? "expired" : estimate.status,
+    validUntil: estimate.valid_until, items: items.map((item) => ({ description: item.description, quantity: item.quantity, lineTotalCents: item.line_total_cents })),
+    paymentOptions: estimate.status === "approved" || estimate.status === "deposit_paid" ? {
+      chasePaymentUrl: estimate.chase_payment_url, venmoUrl: estimate.venmo_url,
+      zelleRecipient: estimate.zelle_recipient,
+    } : null,
+  };
+}
+
 type ArticleStatus = "draft" | "published";
 
 interface ArticleRow {
@@ -410,20 +481,25 @@ const worker = {
     const managerInvoiceSendMatch = path.match(/^\/manager-invoices\/([^/]+)\/send$/);
     const managerInvoicePaidMatch = path.match(/^\/manager-invoices\/([^/]+)\/paid$/);
     const managerInvoiceMatch = path.match(/^\/manager-invoices\/([^/]+)$/);
+    const managerEstimateSendMatch = path.match(/^\/manager-estimates\/([^/]+)\/send$/);
+    const managerEstimatePaidMatch = path.match(/^\/manager-estimates\/([^/]+)\/deposit-paid$/);
+    const publicEstimateMatch = path.match(/^\/public-estimates\/([^/]+)(?:\/(approve))?$/);
     const publicArticleRoute = path === "/articles" || Boolean(publicArticleMatch);
     const managerArticleRoute = path === "/manager-articles" || Boolean(managerArticleMatch);
     const managerCustomerRoute = path === "/manager-customers" || Boolean(managerCustomerMatch);
     const managerInvoiceRoute = path === "/manager-invoices" || path === "/manager-invoice-sender-status" || Boolean(managerInvoiceMatch) || Boolean(managerInvoiceSendMatch) || Boolean(managerInvoicePaidMatch);
+    const managerEstimateRoute = path === "/manager-estimates" || Boolean(managerEstimateSendMatch) || Boolean(managerEstimatePaidMatch);
+    const publicEstimateRoute = Boolean(publicEstimateMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!publicArticleRoute && !managerArticleRoute && !managerCustomerRoute && !managerInvoiceRoute && !existingRoute) {
+    if (!publicArticleRoute && !publicEstimateRoute && !managerArticleRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
     const authorization = request.headers.get("Authorization");
 
     if (
-      !publicArticleRoute &&
+      !publicArticleRoute && !publicEstimateRoute &&
       (!env.API_SECRET || authorization !== `Bearer ${env.API_SECRET}`)
     ) {
       return json({ error: "Unauthorized" }, 401);
@@ -473,6 +549,29 @@ const worker = {
           errorName: error instanceof Error ? error.name : "UnknownError",
         });
         return json({ error: "Article is temporarily unavailable." }, 500);
+      }
+    }
+
+    if (publicEstimateMatch) {
+      const token = publicEstimateMatch[1];
+      if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return json({ error: "Estimate link is invalid or expired." }, 404);
+      try {
+        const estimate = await env.DB.prepare("SELECT * FROM manager_estimates WHERE approval_token = ?").bind(token).first<ManagerEstimateRow>();
+        if (!estimate) return json({ error: "Estimate link is invalid or expired." }, 404);
+        const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM manager_estimate_items WHERE estimate_id = ? ORDER BY rowid").bind(estimate.id).all<InvoiceItemRow>();
+        if (publicEstimateMatch[2] === "approve") {
+          if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+          if (estimate.status !== "sent") return estimate.status === "approved" || estimate.status === "deposit_paid" ? json({ success: true, alreadyApproved: true, estimate: publicEstimatePayload(estimate, items.results || []) }) : json({ error: "This estimate is not available for approval." }, 409);
+          if (estimate.valid_until < new Date().toISOString().slice(0, 10)) return json({ error: "This estimate has expired. Please contact TC Cleaning Services for an updated estimate." }, 410);
+          const claimed = await env.DB.prepare("UPDATE manager_estimates SET status = 'approved', approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sent'").bind(estimate.id).run();
+          if (!claimed.meta.changes) return json({ error: "Estimate status changed. Reload this page." }, 409);
+          const approved = { ...estimate, status: "approved" };
+          return json({ success: true, estimate: publicEstimatePayload(approved, items.results || []) });
+        }
+        return json({ success: true, estimate: publicEstimatePayload(estimate, items.results || []) });
+      } catch (error) {
+        console.error("Public estimate request failed.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "This estimate is temporarily unavailable." }, 500);
       }
     }
 
@@ -692,6 +791,105 @@ const worker = {
         console.error("Client information could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
         return json({ error: "Client information could not be saved." }, 500);
       }
+    }
+
+    if (managerEstimateRoute) {
+      if (path === "/manager-estimates" && request.method === "GET") {
+        try {
+          const estimates = await env.DB.prepare(`SELECT e.*, (SELECT COUNT(*) FROM manager_estimate_items i WHERE i.estimate_id = e.id) AS item_count FROM manager_estimates e ORDER BY e.created_at DESC LIMIT 200`).all<ManagerEstimateRow>();
+          const quotes = await env.DB.prepare(`
+            SELECT e.id AS quote_id, e.customer_id, e.property_id, e.service_type, e.estimate_notes, e.created_at,
+              c.first_name, c.last_name, c.email, c.phone,
+              p.address_line1, p.address_line2, p.city, p.state, p.zip_code, p.bedrooms, p.bathrooms, p.square_feet
+            FROM estimates e JOIN customers c ON c.id = e.customer_id JOIN properties p ON p.id = e.property_id
+            LEFT JOIN manager_estimates me ON me.source_quote_id = e.id
+            WHERE e.approval_status = 'pending' AND me.id IS NULL
+            ORDER BY e.created_at DESC LIMIT 200
+          `).all<Record<string, unknown>>();
+          return json({ success: true, estimates: estimates.results || [], incomingQuotes: quotes.results || [] });
+        } catch (error) {
+          console.error("Estimate manager list could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Estimates and website quote requests are temporarily unavailable." }, 500);
+        }
+      }
+
+      if (path === "/manager-estimates" && request.method === "POST") {
+        if (!request.headers.get("Content-Type")?.includes("application/json")) return json({ error: "JSON required." }, 415);
+        let input: ManagerEstimateInput | null;
+        try { input = parseManagerEstimateInput(await request.json()); } catch { input = null; }
+        if (!input) return json({ error: "Check the client, estimate, payment, and deposit details." }, 400);
+        if (input.sourceQuoteId && !/^[0-9a-f-]{36}$/i.test(input.sourceQuoteId)) return json({ error: "Website request not found." }, 404);
+        if (input.customerId && !/^[0-9a-f-]{36}$/i.test(input.customerId)) return json({ error: "Selected client is invalid." }, 400);
+        if (input.sourceQuoteId && !input.customerId) return json({ error: "Select a valid customer for this website request." }, 400);
+        if (input.validUntil < new Date().toISOString().slice(0, 10)) return json({ error: "The expiration date must be today or later." }, 400);
+        const id = crypto.randomUUID();
+        const estimateNumber = `TCE-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${id.slice(0, 6).toUpperCase()}`;
+        const lineItems = input.items.map((item) => ({ ...item, unitPriceCents: Math.round(item.unitPrice * 100), lineTotalCents: Math.round(item.unitPrice * 100 * item.quantity) }));
+        if (lineItems.some((item) => !Number.isSafeInteger(item.lineTotalCents))) return json({ error: "An estimate line amount is too large." }, 400);
+        const total = lineItems.reduce((sum, item) => sum + item.lineTotalCents, 0);
+        const deposit = Math.round(total * input.depositPercent / 100);
+        if (!Number.isSafeInteger(total) || !Number.isSafeInteger(deposit)) return json({ error: "Estimate total is too large." }, 400);
+        try {
+          if (input.sourceQuoteId) {
+            const source = await env.DB.prepare("SELECT id, customer_id, property_id FROM estimates WHERE id = ? AND approval_status = 'pending'").bind(input.sourceQuoteId).first<{ id: string; customer_id: string; property_id: string }>();
+            if (!source || source.customer_id !== input.customerId) return json({ error: "Website quote request not found or no longer pending." }, 404);
+            const duplicate = await env.DB.prepare("SELECT estimate_number FROM manager_estimates WHERE source_quote_id = ?").bind(input.sourceQuoteId).first<{ estimate_number: string }>();
+            if (duplicate) return json({ error: `This request has already been converted to ${duplicate.estimate_number}.` }, 409);
+          }
+          if (input.customerId) {
+            const customer = await env.DB.prepare("SELECT id FROM customers WHERE id = ?").bind(input.customerId).first<{ id: string }>();
+            if (!customer) return json({ error: "Selected client was not found." }, 404);
+          }
+          const sourceProperty = input.sourceQuoteId ? await env.DB.prepare("SELECT property_id FROM estimates WHERE id = ?").bind(input.sourceQuoteId).first<{ property_id: string }>() : null;
+          await env.DB.batch([
+            env.DB.prepare(`INSERT INTO manager_estimates (id, estimate_number, source_quote_id, customer_id, property_id, client_name, client_email, client_phone, property_address, service_type, scope, total_cents, deposit_percent, deposit_cents, chase_payment_url, venmo_url, zelle_recipient, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+              .bind(id, estimateNumber, input.sourceQuoteId || null, input.customerId || null, sourceProperty?.property_id || null, input.clientName, input.clientEmail, input.clientPhone, input.propertyAddress, input.serviceType, input.scope, total, input.depositPercent, deposit, input.chasePaymentUrl, input.venmoUrl, input.zelleRecipient, input.validUntil),
+            ...lineItems.map((item) => env.DB.prepare("INSERT INTO manager_estimate_items (id, estimate_id, description, quantity, unit_price_cents, line_total_cents) VALUES (?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), id, item.description, item.quantity, item.unitPriceCents, item.lineTotalCents)),
+          ]);
+          const estimate = await env.DB.prepare("SELECT * FROM manager_estimates WHERE id = ?").bind(id).first<ManagerEstimateRow>();
+          return json({ success: true, estimate }, 201);
+        } catch (error) {
+          console.error("Estimate draft could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Estimate draft could not be saved." }, 500);
+        }
+      }
+
+      if (managerEstimateSendMatch && request.method === "POST") {
+        const id = managerEstimateSendMatch[1];
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Estimate not found." }, 404);
+        if (!env.RESEND_INVOICE_API_KEY) return json({ error: "Estimate email is not configured. The saved draft is available." }, 503);
+        try {
+          const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+          const token = btoa(String.fromCharCode(...tokenBytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+          const claimed = await env.DB.prepare("UPDATE manager_estimates SET status = 'sending', approval_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'draft'").bind(token, id).run();
+          if (!claimed.meta.changes) return json({ error: "Only a saved draft can be sent. Refresh the estimate list for its current status." }, 409);
+          const estimate = await env.DB.prepare("SELECT * FROM manager_estimates WHERE id = ?").bind(id).first<ManagerEstimateRow>();
+          const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM manager_estimate_items WHERE estimate_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
+          if (!estimate) throw new Error("Estimate record missing after send claim.");
+          const publicUrl = `https://www.tccleaningaz.com/estimate/${token}`;
+          const emailResponse = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${env.RESEND_INVOICE_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: "TC Cleaning Services <quotes@tccleaningaz.com>", to: [estimate.client_email], subject: `Cleaning estimate ${estimate.estimate_number} from TC Cleaning Services`, text: [`Hello ${estimate.client_name},`, "", `Your estimate ${estimate.estimate_number} totals ${money(estimate.total_cents)}.`, `Deposit to begin: ${money(estimate.deposit_cents)} (${estimate.deposit_percent}%).`, `Valid through ${estimate.valid_until}.`, "", `Review and approve your estimate: ${publicUrl}`, "", "Payment options are shown after approval.", "TC Cleaning Services AZ LLC · (480) 310-8040"].join("\n"), html: estimateEmailHtml(estimate, items.results || [], publicUrl) }) });
+          if (!emailResponse.ok) {
+            await env.DB.prepare("UPDATE manager_estimates SET status = 'draft', approval_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
+            console.error("Estimate email provider rejected the message.", { providerStatus: emailResponse.status });
+            return json({ error: emailResponse.status === 403 ? "The quotes sender is not authorized by the email provider. The estimate draft remains saved." : "The estimate email could not be accepted. Confirm quotes@tccleaningaz.com sender verification; the draft remains saved." }, 502);
+          }
+          await env.DB.prepare("UPDATE manager_estimates SET status = 'sent', sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
+          return json({ success: true });
+        } catch (error) {
+          await env.DB.prepare("UPDATE manager_estimates SET status = 'draft', approval_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run().catch(() => undefined);
+          console.error("Estimate email could not be sent.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "The estimate email could not be sent. The saved draft is available to retry." }, 502);
+        }
+      }
+
+      if (managerEstimatePaidMatch && request.method === "POST") {
+        const id = managerEstimatePaidMatch[1];
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Estimate not found." }, 404);
+        const result = await env.DB.prepare("UPDATE manager_estimates SET status = 'deposit_paid', deposit_paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'approved'").bind(id).run();
+        if (!result.meta.changes) return json({ error: "Only an approved estimate can be marked as having its deposit paid. Confirm payment in Chase, Venmo, or Zelle first." }, 409);
+        return json({ success: true });
+      }
+      return json({ error: "Method not allowed." }, 405);
     }
 
     if (managerInvoiceRoute) {
@@ -1200,7 +1398,7 @@ const worker = {
           INSERT INTO estimates
             (id, customer_id, property_id, service_type, approval_status, estimate_notes)
           VALUES (?, ?, ?, ?, 'pending', ?)
-        `).bind(customerId, customerId, propertyId, data.service, notes),
+        `).bind(estimateId, customerId, propertyId, data.service, notes),
       ];
 
       await env.DB.batch(statements);
