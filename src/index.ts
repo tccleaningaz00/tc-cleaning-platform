@@ -1,4 +1,6 @@
 
+import { createInvoicePdf } from "./invoice-pdf";
+
 interface Env {
   DB: D1Database;
   API_SECRET: string;
@@ -98,6 +100,27 @@ function parseInvoiceInput(value: unknown): InvoiceInput | null {
 
 function money(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function getInvoiceLogo() {
+  try {
+    const response = await fetch("https://www.tccleaningaz.com/images/tc-cleaning-logo.png", { signal: AbortSignal.timeout(5000) });
+    if (!response.ok || !response.headers.get("content-type")?.includes("image/png")) return undefined;
+    const size = Number(response.headers.get("content-length") || 0);
+    if (size > 512_000) return undefined;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return bytes.length <= 512_000 ? bytes : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function invoiceEmailHtml(invoice: InvoiceRow, items: InvoiceItemRow[]) {
@@ -964,6 +987,14 @@ const worker = {
           if (!invoice) throw new Error("Invoice record missing after send claim.");
           const lines = (items.results || []).map((item) => `${item.description} | ${item.quantity} × ${money(item.unit_price_cents)} = ${money(item.line_total_cents)}`).join("\n");
           const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, ...(invoice.payment_url ? ["", "Pay by card via Chase:", invoice.payment_url] : []), ...(invoice.venmo_url ? ["", "Pay with Venmo:", invoice.venmo_url, `Enter ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), ...(invoice.zelle_recipient ? ["", "Pay with Zelle from your banking app:", invoice.zelle_recipient, `Send ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
+          let invoicePdf: Uint8Array;
+          try {
+            invoicePdf = await createInvoicePdf(invoice, items.results || [], await getInvoiceLogo());
+          } catch (error) {
+            await env.DB.prepare("UPDATE invoices SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
+            console.error("Invoice PDF could not be generated; email was not sent.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+            return json({ error: "The branded invoice PDF could not be prepared, so the invoice was not sent. The saved draft is available to retry." }, 500);
+          }
           const emailResponse = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: { Authorization: `Bearer ${env.RESEND_INVOICE_API_KEY}`, "Content-Type": "application/json" },
@@ -973,6 +1004,7 @@ const worker = {
               subject: `Invoice ${invoice.invoice_number} from TC Cleaning Services`,
               text: textBody,
               html: invoiceEmailHtml(invoice, items.results || []),
+              attachments: [{ filename: `TC-Cleaning-Invoice-${invoice.invoice_number}.pdf`, content: bytesToBase64(invoicePdf), content_type: "application/pdf" }],
             }),
           });
           if (!emailResponse.ok) {
