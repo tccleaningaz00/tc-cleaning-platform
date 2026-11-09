@@ -3,6 +3,7 @@ interface Env {
   DB: D1Database;
   API_SECRET: string;
   RESEND_API_KEY: string;
+  RESEND_INVOICE_API_KEY?: string;
   GOOGLE_TOKEN_SECRET: string;
   GOOGLE_TOKEN_ENCRYPTION_KEY?: string;
   GOOGLE_CLIENT_ID: string;
@@ -664,19 +665,8 @@ const worker = {
 
     if (managerInvoiceRoute) {
       if (request.method === "GET" && path === "/manager-invoice-sender-status") {
-        try {
-          const response = await fetch("https://api.resend.com/domains", {
-            headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
-          });
-          if (!response.ok) return json({ senderReady: null, reason: "unavailable" }, 200);
-          const data: unknown = await response.json();
-          const domains = isRecord(data) && Array.isArray(data.data) ? data.data : [];
-          const domain = domains.find((entry) => isRecord(entry) && entry.name === "tccleaningaz.com");
-          const senderReady = Boolean(isRecord(domain) && domain.status === "verified");
-          return json({ senderReady, reason: senderReady ? "verified" : "verify_sender" });
-        } catch {
-          return json({ senderReady: null, reason: "unavailable" }, 200);
-        }
+        const senderReady = Boolean(env.RESEND_INVOICE_API_KEY);
+        return json({ senderReady, reason: senderReady ? "invoice_key_configured" : "invoice_key_missing" });
       }
 
       if (request.method === "GET" && path === "/manager-invoices") {
@@ -736,6 +726,7 @@ const worker = {
       if (request.method === "POST" && managerInvoiceSendMatch) {
         const id = managerInvoiceSendMatch[1];
         if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
+        if (!env.RESEND_INVOICE_API_KEY) return json({ error: "Invoice sending is not configured yet. The draft is saved; configure the dedicated invoice email key to send from invoices@tccleaningaz.com." }, 503);
         try {
           const claimed = await env.DB.prepare("UPDATE invoices SET status = 'sending', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'draft'").bind(id).run();
           if (!claimed.meta.changes) return json({ error: "Only a saved draft can be sent. Refresh the invoice list to see its latest status." }, 409);
@@ -746,7 +737,7 @@ const worker = {
           const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
           const emailResponse = await fetch("https://api.resend.com/emails", {
             method: "POST",
-            headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+            headers: { Authorization: `Bearer ${env.RESEND_INVOICE_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({
               from: "TC Cleaning Services <invoices@tccleaningaz.com>",
               to: [invoice.client_email],
@@ -759,7 +750,7 @@ const worker = {
             const providerStatus = emailResponse.status;
             await env.DB.prepare("UPDATE invoices SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
             console.error("Invoice email provider rejected the message.", { providerStatus });
-            return json({ error: providerStatus === 403 || providerStatus === 422 ? "The email provider could not send from invoices@tccleaningaz.com. Confirm that this sender is verified in the outbound email service." : "The invoice email could not be sent. The draft is still saved." }, 502);
+            return json({ error: providerStatus === 403 ? "The Resend key for invoice sending is not authorized for tccleaningaz.com. The draft is still saved." : providerStatus === 422 ? "Resend did not accept invoices@tccleaningaz.com. Check the sender verification and invoice details; the draft is still saved." : providerStatus === 401 ? "The invoice email key was rejected by Resend. The draft is still saved." : "The invoice email could not be sent. The draft is still saved." }, 502);
           }
           await env.DB.prepare("UPDATE invoices SET status = 'sent', sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
           return json({ success: true });
