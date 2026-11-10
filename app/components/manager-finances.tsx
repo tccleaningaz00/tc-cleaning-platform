@@ -84,17 +84,6 @@ export default function ManagerFinances() {
   const visible = entries.filter((entry) => entry.transaction_date >= bounds.start && entry.transaction_date <= bounds.end);
   const totals = visible.reduce((sum, entry) => { sum[entry.entry_type] += entry.amount_cents; return sum; }, { income: 0, expense: 0 });
   const max = Math.max(1, ...chart.flatMap((item) => [item.income, item.expense]));
-  const monthChart = useMemo(() => {
-    const now = dateAtNoon(localToday());
-    return Array.from({ length: 6 }, (_, i) => {
-      const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5 + i, 1, 12));
-      const key = `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, "0")}`;
-      const month = entries.filter((entry) => entry.transaction_date.startsWith(key));
-      return { label: first.toLocaleDateString("en-US", { timeZone: "America/Phoenix", month: "short" }), income: month.filter((e) => e.entry_type === "income").reduce((s, e) => s + e.amount_cents, 0), expense: month.filter((e) => e.entry_type === "expense").reduce((s, e) => s + e.amount_cents, 0) };
-    });
-  }, [entries]);
-  const monthMax = Math.max(1, ...monthChart.flatMap((item) => [item.income, item.expense]));
-
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError(""); setNotice("");
     try {
@@ -135,7 +124,7 @@ export default function ManagerFinances() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}><div><p style={{ color: "#16834a", fontSize: 12, fontWeight: 700, letterSpacing: ".08em", margin: "0 0 5px" }}>BUSINESS REPORTS</p><h2 style={{ margin: 0 }}>{period === "week" ? "Weekly" : "Monthly"} activity</h2></div><div style={{ display: "flex", gap: 8 }}><button onClick={() => setPeriod("week")} style={{ ...button, background: period === "week" ? "#16834a" : "#edf2f4", color: period === "week" ? "white" : "#354858" }}>Weekly</button><button onClick={() => setPeriod("month")} style={{ ...button, background: period === "month" ? "#16834a" : "#edf2f4", color: period === "month" ? "white" : "#354858" }}>Monthly</button></div></div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "18px 0" }}><button aria-label="Previous period" onClick={() => setPeriodOffset((v) => v - 1)} style={{ ...button, background: "#edf2f4", color: "#354858" }}>‹</button><strong>{period === "week" ? bounds.title : bounds.title}</strong><button aria-label="Next period" disabled={periodOffset >= 0} onClick={() => setPeriodOffset((v) => v + 1)} style={{ ...button, background: "#edf2f4", color: "#354858", opacity: periodOffset >= 0 ? .45 : 1 }}>›</button><button onClick={() => setPeriodOffset(0)} style={{ ...button, background: "#edf2f4", color: "#354858" }}>Current</button></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 20 }}><Summary label="Income earned" amount={totals.income} color="#16834a" /><Summary label="Expenses incurred" amount={totals.expense} color="#d36e4e" /><Summary label="Net activity" amount={totals.income - totals.expense} color="#172b3d" /></div>
-      <Chart data={period === "week" ? chart : monthChart} max={period === "week" ? max : monthMax} />
+      <Chart data={chart} max={max} />
       <p style={{ color: "#687786", fontSize: 13, marginBottom: 0 }}>Weekly reporting runs Sunday through Saturday in Arizona time. A new week starts Sunday; all prior entries and reports remain saved. Figures are grouped by the job/expense date (accrual view).</p>
     </section>
 
