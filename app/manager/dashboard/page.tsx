@@ -194,7 +194,9 @@ export default async function ManagerDashboard({
               </article>
             );
 
-            return title === "Customers & Properties" ? (
+            return title === "Expenses & Payments" || title === "Business Reports" ? (
+              <Link key={title} href="/manager/finances" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
+            ) : title === "Customers & Properties" ? (
               <Link key={title} href="/manager/customers" style={{ color: "inherit", textDecoration: "none" }}>
                 {card}
               </Link>

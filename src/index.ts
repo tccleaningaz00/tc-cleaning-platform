@@ -513,9 +513,10 @@ const worker = {
     const managerInvoiceRoute = path === "/manager-invoices" || path === "/manager-invoice-sender-status" || Boolean(managerInvoiceMatch) || Boolean(managerInvoiceSendMatch) || Boolean(managerInvoicePaidMatch);
     const managerEstimateRoute = path === "/manager-estimates" || Boolean(managerEstimateSendMatch) || Boolean(managerEstimatePaidMatch);
     const publicEstimateRoute = Boolean(publicEstimateMatch);
+    const managerLedgerRoute = path === "/manager-ledger";
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!publicArticleRoute && !publicEstimateRoute && !managerArticleRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !existingRoute) {
+    if (!publicArticleRoute && !publicEstimateRoute && !managerArticleRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
@@ -1137,6 +1138,62 @@ const worker = {
           errorName: error instanceof Error ? error.name : "UnknownError",
         });
         return json({ error: "Unable to load the customer directory." }, 500);
+      }
+    }
+
+    if (managerLedgerRoute) {
+      if (request.method === "GET") {
+        try {
+          const result = await env.DB.prepare(`
+            SELECT id, entry_type, transaction_date, paid_date, amount_cents, category,
+                   counterparty, payment_method, description, created_at
+            FROM financial_entries
+            ORDER BY transaction_date DESC, created_at DESC
+            LIMIT 5000
+          `).all<Record<string, unknown>>();
+          return json({ success: true, entries: result.results || [] });
+        } catch (error) {
+          console.error("Business ledger could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Business records could not be loaded." }, 500);
+        }
+      }
+
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try {
+        const body: unknown = await request.json();
+        if (!isRecord(body)) return json({ error: "Check the transaction details and try again." }, 400);
+        const entryType = body.entryType;
+        const transactionDate = body.transactionDate;
+        const paidDate = body.paidDate;
+        const amountCents = body.amountCents;
+        const category = body.category;
+        const counterparty = body.counterparty;
+        const paymentMethod = body.paymentMethod;
+        const description = body.description;
+        const validDate = (value: unknown) => {
+          if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+          const parsed = new Date(`${value}T12:00:00Z`);
+          return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+        };
+        const categories = ["Cleaning income", "Other income", "Cleaning supplies", "Equipment", "Vehicle and travel", "Insurance", "Software and services", "Marketing", "Office", "Contract labor", "Payroll", "Bank and card fees", "Taxes and licenses", "Repairs and maintenance", "Other expense"];
+        const methods = ["Chase", "Cash", "Check", "Zelle", "Venmo", "Credit card", "Other"];
+        const categoryValid = entryType === "income"
+          ? category === "Cleaning income" || category === "Other income"
+          : entryType === "expense" && categories.includes(String(category)) && category !== "Cleaning income" && category !== "Other income";
+        if ((entryType !== "income" && entryType !== "expense") || !validDate(transactionDate) || (paidDate !== null && paidDate !== "" && !validDate(paidDate)) || typeof amountCents !== "number" || !Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > 100_000_000 || !categoryValid || typeof counterparty !== "string" || counterparty.trim().length > 160 || typeof paymentMethod !== "string" || !methods.includes(paymentMethod) || typeof description !== "string" || !description.trim() || description.trim().length > 1000) {
+          return json({ error: "Check the date, amount, category, payment method, and description." }, 400);
+        }
+        const id = crypto.randomUUID();
+        await env.DB.prepare(`
+          INSERT INTO financial_entries
+            (id, entry_type, transaction_date, paid_date, amount_cents, category, counterparty, payment_method, description)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(id, entryType, transactionDate, paidDate || null, amountCents, category, counterparty.trim(), paymentMethod, description.trim()).run();
+        const entry = await env.DB.prepare(`SELECT id, entry_type, transaction_date, paid_date, amount_cents, category, counterparty, payment_method, description, created_at FROM financial_entries WHERE id = ?`).bind(id).first<Record<string, unknown>>();
+        return json({ success: true, entry }, 201);
+      } catch (error) {
+        console.error("Business ledger entry could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "The business record could not be saved." }, 500);
       }
     }
 
