@@ -926,7 +926,7 @@ const worker = {
           const result = await env.DB.prepare(`
             SELECT i.*, COALESCE(SUM(ii.line_total_cents), 0) AS item_total_cents
             FROM invoices i LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-            GROUP BY i.id ORDER BY i.created_at DESC LIMIT 200
+            GROUP BY i.id ORDER BY i.created_at DESC
           `).all<InvoiceRow>();
           return json({ success: true, invoices: result.results || [] });
         } catch (error) {
