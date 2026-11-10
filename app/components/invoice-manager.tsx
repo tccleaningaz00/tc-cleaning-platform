@@ -15,12 +15,15 @@ type Client = {
   zip_code: string | null;
 };
 type Line = { description: string; quantity: string; unitPrice: string };
+type InvoiceItem = { id: string; description: string; quantity: number; unit_price_cents: number; line_total_cents: number };
 type Invoice = {
   id: string; invoice_number: string; client_name: string; client_email: string;
-  issue_date: string; due_date: string; status: "draft" | "sending" | "sent" | "paid" | "void";
-  payment_url?: string;
+  client_phone?: string; billing_address?: string; issue_date: string; due_date: string; notes?: string;
+  status: "draft" | "sending" | "sent" | "paid" | "void";
+  payment_url?: string; venmo_url?: string; zelle_recipient?: string;
   receipt_status?: "not_sent" | "sending" | "sent" | "failed";
-  subtotal_cents: number; tax_cents: number; total_cents: number; created_at: string;
+  sent_at?: string | null; receipt_sent_at?: string | null;
+  subtotal_cents: number; tax_cents: number; total_cents: number; created_at: string; items?: InvoiceItem[];
 };
 
 const fieldStyle = { width: "100%", boxSizing: "border-box" as const, padding: "11px 12px", border: "1px solid #cbd5dc", borderRadius: "7px", font: "inherit", color: "#172b3d", background: "#fff" };
@@ -51,6 +54,10 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [reviewInvoice, setReviewInvoice] = useState<Invoice | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState("");
   const [senderStatus, setSenderStatus] = useState<"checking" | "ready" | "not-ready" | "unknown">("checking");
 
   useEffect(() => {
@@ -117,7 +124,22 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
     finally { setBusy(false); }
   }
 
-  const visible = invoices.filter((invoice) => `${invoice.invoice_number} ${invoice.client_name} ${invoice.client_email} ${invoice.status}`.toLowerCase().includes(filter.toLowerCase()));
+  async function reviewInvoiceDetails(invoice: Invoice) {
+    setReviewBusy(true); setReviewError("");
+    try {
+      const response = await fetch(`/api/manager/invoices/${invoice.id}`, { cache: "no-store" });
+      const data = await response.json() as { invoice?: Invoice; error?: string };
+      if (!response.ok || !data.invoice) throw new Error(data.error || "Invoice details could not be loaded.");
+      setReviewInvoice(data.invoice);
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Invoice details could not be loaded.");
+    } finally { setReviewBusy(false); }
+  }
+
+  const visible = invoices.filter((invoice) =>
+    (statusFilter === "all" || invoice.status === statusFilter) &&
+    `${invoice.invoice_number} ${invoice.client_name} ${invoice.client_email} ${invoice.status}`.toLowerCase().includes(filter.toLowerCase())
+  );
 
   return <div style={{ marginTop: 28 }}>
     <section style={{ background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 30px)", boxShadow: "0 3px 14px rgba(0,0,0,.04)" }}>
@@ -168,11 +190,25 @@ export default function InvoiceManager({ clients }: { clients: Client[] }) {
     </section>
 
     <section style={{ marginTop: 28, background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 30px)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div><h2 style={{ margin: 0 }}>Invoices</h2><p style={{ color: "#687786", marginBottom: 0 }}>Drafts are saved in the business database. Sending is a separate, confirmed action.</p></div><input aria-label="Search invoices" placeholder="Search invoices" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...fieldStyle, maxWidth: 260 }} /></div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div><h2 style={{ margin: 0 }}>Invoice history</h2><p style={{ color: "#687786", marginBottom: 0 }}>Saved drafts, sent invoices, and paid invoices stay here. Open any invoice to review its original details.</p></div><div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}><select aria-label="Filter invoices by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...fieldStyle, width: "auto", minWidth: 140 }}><option value="all">All statuses</option><option value="draft">Draft</option><option value="sent">Sent</option><option value="paid">Paid</option><option value="void">Void</option></select><input aria-label="Search invoices" placeholder="Search invoices" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...fieldStyle, maxWidth: 260 }} /></div></div>
       <div style={{ display: "grid", gap: 12, marginTop: 18 }}>{visible.length === 0 ? <p style={{ color: "#687786" }}>{filter ? "No matching invoices." : "No invoices yet. Saved drafts will appear here."}</p> : visible.map((invoice) => <article key={invoice.id} style={{ border: "1px solid #e3e9ed", borderRadius: 9, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <div><strong>{invoice.invoice_number}</strong><span style={{ display: "inline-block", marginLeft: 10, padding: "3px 8px", borderRadius: 99, background: invoice.status === "paid" ? "#e5f4e9" : invoice.status === "sent" ? "#e8f0fa" : "#fff4dc", color: "#354858", fontSize: 12, textTransform: "capitalize" }}>{invoice.status}</span><p style={{ margin: "7px 0 0", color: "#52616d" }}>{invoice.client_name} · {invoice.client_email}</p><p style={{ margin: "4px 0 0", color: "#687786", fontSize: 14 }}>Due {invoice.due_date} · {usd(invoice.total_cents)}</p></div>
-        {invoice.status === "draft" && <button disabled={busy || senderStatus === "checking" || senderStatus === "not-ready"} onClick={() => void actOnInvoice(invoice, "send")} style={{ ...buttonStyle, opacity: busy || senderStatus === "checking" || senderStatus === "not-ready" ? .55 : 1 }} title={senderStatus === "ready" || senderStatus === "unknown" ? "Confirm the recipient before sending" : "Verify invoices@tccleaningaz.com with the outbound email provider first"}>Review &amp; send</button>}{invoice.status === "sent" && <button disabled={busy} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763" }}>Mark paid &amp; send receipt</button>}{invoice.status === "paid" && invoice.receipt_status !== "sent" && <button disabled={busy || invoice.receipt_status === "sending"} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763", opacity: busy || invoice.receipt_status === "sending" ? .55 : 1 }}>{invoice.receipt_status === "sending" ? "Sending receipt…" : invoice.receipt_status === "failed" ? "Retry receipt" : "Send receipt"}</button>}{invoice.status === "paid" && invoice.receipt_status === "sent" && <span style={{ color: "#176b40", fontSize: 14 }}>Receipt emailed</span>}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><button disabled={reviewBusy} onClick={() => void reviewInvoiceDetails(invoice)} style={{ ...buttonStyle, background: "#244763", opacity: reviewBusy ? .65 : 1 }}>View invoice</button>{invoice.status === "draft" && <button disabled={busy || senderStatus === "checking" || senderStatus === "not-ready"} onClick={() => void actOnInvoice(invoice, "send")} style={{ ...buttonStyle, opacity: busy || senderStatus === "checking" || senderStatus === "not-ready" ? .55 : 1 }} title={senderStatus === "ready" || senderStatus === "unknown" ? "Confirm the recipient before sending" : "Verify invoices@tccleaningaz.com with the outbound email provider first"}>Review &amp; send</button>}{invoice.status === "sent" && <button disabled={busy} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763" }}>Mark paid &amp; send receipt</button>}{invoice.status === "paid" && invoice.receipt_status !== "sent" && <button disabled={busy || invoice.receipt_status === "sending"} onClick={() => void actOnInvoice(invoice, "paid")} style={{ ...buttonStyle, background: "#244763", opacity: busy || invoice.receipt_status === "sending" ? .55 : 1 }}>{invoice.receipt_status === "sending" ? "Sending receipt…" : invoice.receipt_status === "failed" ? "Retry receipt" : "Send receipt"}</button>}{invoice.status === "paid" && invoice.receipt_status === "sent" && <span style={{ color: "#176b40", fontSize: 14 }}>Receipt emailed</span>}</div>
       </article>)}</div>
     </section>
+    {reviewError && <p role="alert" style={{ marginTop: 14, padding: 12, borderRadius: 7, background: "#fff0ef", color: "#8a3028" }}>{reviewError}</p>}
+    {reviewInvoice && <div style={{ position: "fixed", inset: 0, zIndex: 1000, overflowY: "auto", padding: "20px 12px", background: "rgba(10,20,30,.62)" }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="invoice-review-title" style={{ maxWidth: 760, margin: "20px auto", overflow: "hidden", borderRadius: 12, background: "white", boxShadow: "0 16px 50px rgba(0,0,0,.25)" }}>
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "20px 24px", background: "#101923", color: "white", borderBottom: "4px solid #8bd34a" }}><div><p style={{ margin: "0 0 6px", color: "#8bd34a", fontWeight: 700, letterSpacing: ".08em", fontSize: 12 }}>TC CLEANING SERVICES AZ LLC</p><h2 id="invoice-review-title" style={{ margin: 0 }}>Invoice {reviewInvoice.invoice_number}</h2><span style={{ display: "inline-block", marginTop: 8, padding: "3px 9px", borderRadius: 99, background: "rgba(255,255,255,.14)", fontSize: 12, textTransform: "capitalize" }}>{reviewInvoice.status}</span></div><button onClick={() => setReviewInvoice(null)} aria-label="Close invoice details" style={{ border: "1px solid rgba(255,255,255,.45)", borderRadius: 7, padding: "8px 12px", background: "transparent", color: "white", fontWeight: 700, cursor: "pointer" }}>Close</button></header>
+        <div style={{ padding: "clamp(18px,4vw,28px)", color: "#172b3d" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 18, paddingBottom: 20, borderBottom: "1px solid #e3e9ed" }}><div><strong>Bill to</strong><p style={{ margin: "6px 0 2px" }}>{reviewInvoice.client_name}</p><p style={{ margin: "2px 0", color: "#52616d" }}>{reviewInvoice.client_email}</p>{reviewInvoice.client_phone && <p style={{ margin: "2px 0", color: "#52616d" }}>{reviewInvoice.client_phone}</p>}{reviewInvoice.billing_address && <p style={{ margin: "8px 0 0", color: "#52616d", whiteSpace: "pre-line" }}>{reviewInvoice.billing_address}</p>}</div><div><strong>Invoice dates</strong><p style={{ margin: "6px 0 2px", color: "#52616d" }}>Issued: {reviewInvoice.issue_date}</p><p style={{ margin: "2px 0", color: "#52616d" }}>Due: {reviewInvoice.due_date}</p>{reviewInvoice.sent_at && <p style={{ margin: "8px 0 0", color: "#52616d" }}>Sent: {new Date(reviewInvoice.sent_at).toLocaleString("en-US", { timeZone: "America/Phoenix" })} (Arizona time)</p>}{reviewInvoice.receipt_sent_at && <p style={{ margin: "4px 0 0", color: "#52616d" }}>Receipt sent: {new Date(reviewInvoice.receipt_sent_at).toLocaleString("en-US", { timeZone: "America/Phoenix" })} (Arizona time)</p>}</div></div>
+          <h3 style={{ margin: "22px 0 10px" }}>Services and charges</h3><div style={{ borderTop: "1px solid #e3e9ed" }}>{(reviewInvoice.items || []).map((item) => <div key={item.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 54px 100px 100px", gap: 10, padding: "12px 0", borderBottom: "1px solid #e3e9ed", alignItems: "start" }}><span>{item.description}</span><span style={{ textAlign: "right" }}>{item.quantity}</span><span style={{ textAlign: "right" }}>{usd(item.unit_price_cents)}</span><strong style={{ textAlign: "right" }}>{usd(item.line_total_cents)}</strong></div>)}</div>
+          <div style={{ maxWidth: 340, margin: "16px 0 0 auto" }}><p style={{ display: "flex", justifyContent: "space-between", margin: "7px 0", color: "#52616d" }}>Subtotal <strong style={{ color: "#172b3d" }}>{usd(reviewInvoice.subtotal_cents)}</strong></p>{reviewInvoice.tax_cents > 0 && <p style={{ display: "flex", justifyContent: "space-between", margin: "7px 0", color: "#52616d" }}>Tax <strong style={{ color: "#172b3d" }}>{usd(reviewInvoice.tax_cents)}</strong></p>}<p style={{ display: "flex", justifyContent: "space-between", margin: "10px 0 0", paddingTop: 10, borderTop: "1px solid #d7e0e6", fontSize: 20 }}>Total <strong>{usd(reviewInvoice.total_cents)}</strong></p></div>
+          {(reviewInvoice.payment_url || reviewInvoice.venmo_url || reviewInvoice.zelle_recipient) && <div style={{ marginTop: 22, padding: 16, background: "#f3f6f8", border: "1px solid #e3e9ed", borderRadius: 8 }}><h3 style={{ margin: "0 0 10px" }}>Payment options saved with this invoice</h3>{reviewInvoice.payment_url && <p style={{ overflowWrap: "anywhere", margin: "7px 0" }}><strong>Chase card link: </strong><a href={reviewInvoice.payment_url} target="_blank" rel="noreferrer">{reviewInvoice.payment_url}</a></p>}{reviewInvoice.venmo_url && <p style={{ overflowWrap: "anywhere", margin: "7px 0" }}><strong>Venmo: </strong><a href={reviewInvoice.venmo_url} target="_blank" rel="noreferrer">{reviewInvoice.venmo_url}</a></p>}{reviewInvoice.zelle_recipient && <p style={{ margin: "7px 0" }}><strong>Zelle: </strong>{reviewInvoice.zelle_recipient}</p>}</div>}
+          {reviewInvoice.notes && <div style={{ marginTop: 18 }}><strong>Notes</strong><p style={{ whiteSpace: "pre-line", color: "#52616d" }}>{reviewInvoice.notes}</p></div>}
+          <p style={{ margin: "24px 0 0", paddingTop: 14, borderTop: "1px solid #e3e9ed", color: "#687786", fontSize: 13 }}>TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</p>
+        </div>
+      </section>
+    </div>}
   </div>;
 }

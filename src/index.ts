@@ -935,6 +935,20 @@ const worker = {
         }
       }
 
+      if (request.method === "GET" && managerInvoiceMatch) {
+        const id = managerInvoiceMatch[1];
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
+        try {
+          const invoice = await env.DB.prepare("SELECT * FROM invoices WHERE id = ?").bind(id).first<InvoiceRow>();
+          if (!invoice) return json({ error: "Invoice not found." }, 404);
+          const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
+          return json({ success: true, invoice: { ...invoice, items: items.results || [] } });
+        } catch (error) {
+          console.error("Invoice details could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Invoice details are temporarily unavailable." }, 500);
+        }
+      }
+
       if (request.method === "POST" && path === "/manager-invoices") {
         if (!request.headers.get("Content-Type")?.includes("application/json")) return json({ error: "JSON required." }, 415);
         let input: InvoiceInput | null;
