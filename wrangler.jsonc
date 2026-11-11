@@ -7,7 +7,7 @@
       "binding": "DB",
       "database_name": "tc-cleaning-business-manager",
       "database_id": "0b31980c-2cef-4b8f-879d-8571b726a644",
-      "migrations_dir": "migrations" 
+      "migrations_dir": "migrations"
     }
   ]
 }

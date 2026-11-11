@@ -498,6 +498,8 @@ const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/$/, "") || "/";
+    const galleryImageMatch = path.match(/^\/gallery\/([0-9a-f-]{36})\/image$/i);
+    const managerGalleryPhotoMatch = path.match(/^\/manager-gallery\/([0-9a-f-]{36})$/i);
     const publicArticleMatch = path.match(/^\/articles\/([^/]+)$/);
     const managerArticleMatch = path.match(/^\/manager-articles\/([^/]+)$/);
     const managerCustomerMatch = path.match(/^\/manager-customers\/([^/]+)$/);
@@ -508,6 +510,8 @@ const worker = {
     const managerEstimatePaidMatch = path.match(/^\/manager-estimates\/([^/]+)\/deposit-paid$/);
     const publicEstimateMatch = path.match(/^\/public-estimates\/([^/]+)(?:\/(approve))?$/);
     const publicArticleRoute = path === "/articles" || Boolean(publicArticleMatch);
+    const publicGalleryRoute = path === "/gallery" || Boolean(galleryImageMatch);
+    const managerGalleryRoute = path === "/manager-gallery" || Boolean(managerGalleryPhotoMatch);
     const managerArticleRoute = path === "/manager-articles" || Boolean(managerArticleMatch);
     const managerCustomerRoute = path === "/manager-customers" || Boolean(managerCustomerMatch);
     const managerInvoiceRoute = path === "/manager-invoices" || path === "/manager-invoice-sender-status" || Boolean(managerInvoiceMatch) || Boolean(managerInvoiceSendMatch) || Boolean(managerInvoicePaidMatch);
@@ -517,17 +521,96 @@ const worker = {
     const managerLedgerRoute = path === "/manager-ledger" || Boolean(managerLedgerEntryMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!publicArticleRoute && !publicEstimateRoute && !managerArticleRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
+    if (!publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
     const authorization = request.headers.get("Authorization");
 
     if (
-      !publicArticleRoute && !publicEstimateRoute &&
+      !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute &&
       (!env.API_SECRET || authorization !== `Bearer ${env.API_SECRET}`)
     ) {
       return json({ error: "Unauthorized" }, 401);
+    }
+
+    if (path === "/gallery") {
+      if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+      try {
+        const result = await env.DB.prepare(`
+          SELECT id, category, description, mime_type, created_at
+          FROM gallery_photos ORDER BY created_at DESC LIMIT 500
+        `).all<Record<string, unknown>>();
+        return json({ success: true, photos: (result.results || []).map((photo) => ({
+          id: photo.id, category: photo.category, description: photo.description,
+          src: `/api/gallery/${photo.id}/image`, createdAt: photo.created_at,
+        })) });
+      } catch (error) {
+        console.error("Public gallery could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "Gallery photos are temporarily unavailable." }, 500);
+      }
+    }
+
+    if (galleryImageMatch) {
+      if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+      try {
+        const photo = await env.DB.prepare("SELECT mime_type, image_base64 FROM gallery_photos WHERE id = ?").bind(galleryImageMatch[1]).first<{ mime_type: string; image_base64: string }>();
+        if (!photo) return json({ error: "Photo not found." }, 404);
+        const binary = atob(photo.image_base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        return new Response(bytes, { headers: { "Content-Type": photo.mime_type, "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400", "X-Content-Type-Options": "nosniff" } });
+      } catch (error) {
+        console.error("Gallery image could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "Photo is temporarily unavailable." }, 500);
+      }
+    }
+
+    if (path === "/manager-gallery") {
+      if (request.method === "GET") {
+        try {
+          const result = await env.DB.prepare(`SELECT id, category, description, mime_type, created_at FROM gallery_photos ORDER BY created_at DESC LIMIT 500`).all<Record<string, unknown>>();
+          return json({ success: true, photos: (result.results || []).map((photo) => ({ id: photo.id, category: photo.category, description: photo.description, src: `/api/gallery/${photo.id}/image`, createdAt: photo.created_at })) });
+        } catch (error) {
+          console.error("Manager gallery could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Gallery photos could not be loaded." }, 500);
+        }
+      }
+      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      let raw = "";
+      try { raw = await request.text(); } catch { return json({ error: "The photo could not be read." }, 400); }
+      if (new TextEncoder().encode(raw).length > 1_400_000) return json({ error: "The compressed photo is too large. Choose a smaller image." }, 413);
+      let body: unknown;
+      try { body = JSON.parse(raw); } catch { return json({ error: "Invalid photo details." }, 400); }
+      if (!isRecord(body)) return json({ error: "Invalid photo details." }, 400);
+      const categories = ["Bathroom", "Kitchen", "Living Room", "Whole Home"];
+      const category = body.category;
+      const description = body.description;
+      const imageData = body.imageData;
+      const dataMatch = typeof imageData === "string" ? imageData.match(/^data:(image\/(?:jpeg|webp|png));base64,([A-Za-z0-9+/]+={0,2})$/) : null;
+      if (typeof category !== "string" || !categories.includes(category) || typeof description !== "string" || description.trim().length > 180 || !dataMatch || dataMatch[2].length > 1_350_000) {
+        return json({ error: "Choose a category and a valid image. Descriptions can be up to 180 characters." }, 400);
+      }
+      try {
+        const id = crypto.randomUUID();
+        await env.DB.prepare(`INSERT INTO gallery_photos (id, category, description, mime_type, image_base64) VALUES (?, ?, ?, ?, ?)`).bind(id, category, description.trim(), dataMatch[1], dataMatch[2]).run();
+        return json({ success: true, photo: { id, category, description: description.trim(), src: `/api/gallery/${id}/image` } }, 201);
+      } catch (error) {
+        console.error("Gallery photo could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "The photo could not be saved. Please try a smaller image." }, 500);
+      }
+    }
+
+    if (managerGalleryPhotoMatch) {
+      if (request.method !== "DELETE") return json({ error: "Method not allowed" }, 405);
+      try {
+        const result = await env.DB.prepare("DELETE FROM gallery_photos WHERE id = ?").bind(managerGalleryPhotoMatch[1]).run();
+        if (!result.meta.changes) return json({ error: "Photo not found." }, 404);
+        return json({ success: true, deleted: true });
+      } catch (error) {
+        console.error("Gallery photo could not be deleted.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "The photo could not be removed." }, 500);
+      }
     }
 
     if (path === "/articles") {

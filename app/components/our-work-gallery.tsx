@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import styles from "../our-work/our-work.module.css";
 
 const categories = ["Bathroom", "Kitchen", "Living Room", "Whole Home"] as const;
@@ -14,6 +14,7 @@ type Photo = {
   title: string;
   room: string;
 };
+type UploadedPhoto = { id: string; category: Category; description: string; src: string };
 
 const bathroomPhotos: Photo[] = [
   { src: "/images/our-work/bathroom-01.jpg", alt: "Bathroom floor and toilet detail", title: "A fresh bathroom detail", room: "Bath details" },
@@ -40,7 +41,29 @@ const galleryPhotos: Record<Category, Photo[]> = {
 
 export default function OurWorkGallery() {
   const [activeCategory, setActiveCategory] = useState<Category>("Bathroom");
-  const activePhotos = galleryPhotos[activeCategory];
+  const [uploadedPhotos, setUploadedPhotos] = useState<UploadedPhoto[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/gallery", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return [] as UploadedPhoto[];
+        const result = await response.json() as { photos?: UploadedPhoto[] };
+        return Array.isArray(result.photos) ? result.photos : [];
+      })
+      .then((photos) => { if (active) setUploadedPhotos(photos); })
+      .catch(() => { if (active) setUploadedPhotos([]); });
+    return () => { active = false; };
+  }, []);
+
+  const photosByCategory = useMemo(() => Object.fromEntries(categories.map((category) => [
+    category,
+    [
+      ...uploadedPhotos.filter((photo) => photo.category === category).map((photo) => ({ src: photo.src, alt: photo.description || `${category} cleaning work`, title: photo.description || `${category} detail`, room: "From our team" })),
+      ...galleryPhotos[category],
+    ],
+  ])) as Record<Category, Photo[]>, [uploadedPhotos]);
+  const activePhotos = photosByCategory[activeCategory];
 
   return (
     <section className={styles.gallerySection} aria-labelledby="gallery-title">
@@ -62,9 +85,9 @@ export default function OurWorkGallery() {
             onClick={() => setActiveCategory(category)}
           >
             {category}
-            {galleryPhotos[category].length > 0 && (
+            {photosByCategory[category].length > 0 && (
               <span className={styles.filterCount}>
-                {String(galleryPhotos[category].length).padStart(2, "0")}
+                {String(photosByCategory[category].length).padStart(2, "0")}
               </span>
             )}
           </button>
@@ -74,7 +97,7 @@ export default function OurWorkGallery() {
       {activePhotos.length > 0 ? (
         <div className={styles.photoGrid}>
           {activePhotos.map((photo, index) => (
-            <article className={styles.photoCard} key={photo.src}>
+            <article className={styles.photoCard} key={`${photo.src}-${index}`}>
               <Image
                 src={photo.src}
                 alt={photo.alt}

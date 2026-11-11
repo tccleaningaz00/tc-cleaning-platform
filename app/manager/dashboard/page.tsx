@@ -173,6 +173,7 @@ export default async function ManagerDashboard({
             ["Scheduling & Dispatch", "Manage appointments, routes and crew assignments."],
             ["Customers & Properties", "Access customer and property records."],
             ["Cleaning Articles", "Write and publish helpful cleaning advice for the community."],
+            ["Our Work Gallery", "Upload and organize photos of your cleaning work."],
             ["Estimates & Pricing", "Turn website quote requests into estimates clients can approve and pay a deposit toward."],
             ["Employees & Payroll", "Manage workforce information and labor costs."],
             ["Expenses & Payments", "Review business expenses and payments."],
@@ -189,7 +190,7 @@ export default async function ManagerDashboard({
                 <h3 style={{ marginTop: 0 }}>{title}</h3>
                 <p style={{ color: "#687786", lineHeight: 1.6 }}>{description}</p>
                 <span style={{ color: "#16834a", fontSize: "13px", fontWeight: 700 }}>
-                  {title === "Customers & Properties" ? "Open client directory" : title === "Cleaning Articles" ? "Write and publish articles" : title === "Estimates & Pricing" ? "Create and send estimates" : "Coming soon"}
+                  {title === "Customers & Properties" ? "Open client directory" : title === "Cleaning Articles" ? "Write and publish articles" : title === "Our Work Gallery" ? "Manage gallery photos" : title === "Estimates & Pricing" ? "Create and send estimates" : "Coming soon"}
                 </span>
               </article>
             );
@@ -202,6 +203,8 @@ export default async function ManagerDashboard({
               </Link>
             ) : title === "Cleaning Articles" ? (
               <Link key={title} href="/manager/articles" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
+            ) : title === "Our Work Gallery" ? (
+              <Link key={title} href="/manager/gallery" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
             ) : title === "Estimates & Pricing" ? (
               <Link key={title} href="/manager/estimates" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
             ) : (
