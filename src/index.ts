@@ -513,7 +513,8 @@ const worker = {
     const managerInvoiceRoute = path === "/manager-invoices" || path === "/manager-invoice-sender-status" || Boolean(managerInvoiceMatch) || Boolean(managerInvoiceSendMatch) || Boolean(managerInvoicePaidMatch);
     const managerEstimateRoute = path === "/manager-estimates" || Boolean(managerEstimateSendMatch) || Boolean(managerEstimatePaidMatch);
     const publicEstimateRoute = Boolean(publicEstimateMatch);
-    const managerLedgerRoute = path === "/manager-ledger";
+    const managerLedgerEntryMatch = path.match(/^\/manager-ledger\/([^/]+)$/);
+    const managerLedgerRoute = path === "/manager-ledger" || Boolean(managerLedgerEntryMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
     if (!publicArticleRoute && !publicEstimateRoute && !managerArticleRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
@@ -1142,6 +1143,51 @@ const worker = {
     }
 
     if (managerLedgerRoute) {
+      if (managerLedgerEntryMatch) {
+        const id = managerLedgerEntryMatch[1];
+        if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Transaction not found." }, 404);
+        if (request.method === "DELETE") {
+          try {
+            const result = await env.DB.prepare("DELETE FROM financial_entries WHERE id = ?").bind(id).run();
+            if (!result.meta.changes) return json({ error: "Transaction not found." }, 404);
+            return json({ success: true, deleted: true });
+          } catch (error) {
+            console.error("Business ledger entry could not be deleted.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+            return json({ error: "The business record could not be deleted." }, 500);
+          }
+        }
+        if (request.method !== "PATCH") return json({ error: "Method not allowed." }, 405);
+        try {
+          const body: unknown = await request.json();
+          if (!isRecord(body)) return json({ error: "Check the transaction details and try again." }, 400);
+          const { entryType, transactionDate, paidDate, amountCents, category, counterparty, paymentMethod, description } = body;
+          const validDate = (value: unknown) => {
+            if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+            const parsed = new Date(`${value}T12:00:00Z`);
+            return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+          };
+          const categories = ["Cleaning income", "Other income", "Cleaning supplies", "Equipment", "Vehicle and travel", "Insurance", "Software and services", "Marketing", "Office", "Contract labor", "Payroll", "Bank and card fees", "Taxes and licenses", "Repairs and maintenance", "Other expense"];
+          const methods = ["Chase", "Cash", "Check", "Zelle", "Venmo", "Credit card", "Other"];
+          const categoryValid = entryType === "income"
+            ? category === "Cleaning income" || category === "Other income"
+            : entryType === "expense" && categories.includes(String(category)) && category !== "Cleaning income" && category !== "Other income";
+          if ((entryType !== "income" && entryType !== "expense") || !validDate(transactionDate) || (paidDate !== null && paidDate !== "" && !validDate(paidDate)) || typeof amountCents !== "number" || !Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > 100_000_000 || !categoryValid || typeof counterparty !== "string" || counterparty.trim().length > 160 || typeof paymentMethod !== "string" || !methods.includes(paymentMethod) || typeof description !== "string" || !description.trim() || description.trim().length > 1000) {
+            return json({ error: "Check the date, amount, category, payment method, and description." }, 400);
+          }
+          const result = await env.DB.prepare(`
+            UPDATE financial_entries
+            SET entry_type = ?, transaction_date = ?, paid_date = ?, amount_cents = ?, category = ?,
+                counterparty = ?, payment_method = ?, description = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).bind(entryType, transactionDate, paidDate || null, amountCents, category, counterparty.trim(), paymentMethod, description.trim(), id).run();
+          if (!result.meta.changes) return json({ error: "Transaction not found." }, 404);
+          const entry = await env.DB.prepare(`SELECT id, entry_type, transaction_date, paid_date, amount_cents, category, counterparty, payment_method, description, created_at FROM financial_entries WHERE id = ?`).bind(id).first<Record<string, unknown>>();
+          return json({ success: true, entry });
+        } catch (error) {
+          console.error("Business ledger entry could not be updated.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "The business record could not be updated." }, 500);
+        }
+      }
       if (request.method === "GET") {
         try {
           const result = await env.DB.prepare(`

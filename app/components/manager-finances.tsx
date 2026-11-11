@@ -23,6 +23,8 @@ export default function ManagerFinances() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [entryType, setEntryType] = useState<"income" | "expense">("income");
@@ -87,12 +89,43 @@ export default function ManagerFinances() {
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError(""); setNotice("");
     try {
-      const response = await fetch("/api/manager/finances", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryType, transactionDate: date, paidDate: paidDate || null, amountCents: moneyInputToCents(amount), category, counterparty, paymentMethod, description }) });
+      const payload = { entryType, transactionDate: date, paidDate: paidDate || null, amountCents: moneyInputToCents(amount), category, counterparty, paymentMethod, description };
+      const response = await fetch(editingId ? `/api/manager/finances/${encodeURIComponent(editingId)}` : "/api/manager/finances", { method: editingId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await response.json() as { entry?: Entry; error?: string };
       if (!response.ok || !data.entry) throw new Error(data.error || "This record could not be saved.");
-      setEntries((current) => [data.entry!, ...current]); setAmount(""); setCounterparty(""); setDescription(""); setNotice(`${entryType === "income" ? "Income" : "Expense"} saved and added to Business Reports.`);
+      if (editingId) {
+        setEntries((current) => current.map((entry) => entry.id === editingId ? data.entry! : entry));
+        setEditingId(null);
+        setNotice("Transaction updated. Business Reports now reflect the change.");
+      } else {
+        setEntries((current) => [data.entry!, ...current]);
+        setAmount(""); setCounterparty(""); setDescription("");
+        setNotice(`${entryType === "income" ? "Income" : "Expense"} saved and added to Business Reports.`);
+      }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "This record could not be saved."); }
     finally { setSaving(false); }
+  }
+
+  function beginEdit(item: Entry) {
+    setEditingId(item.id); setEntryType(item.entry_type); setDate(item.transaction_date); setPaidDate(item.paid_date || "");
+    setAmount((item.amount_cents / 100).toFixed(2)); setCategory(item.category); setCounterparty(item.counterparty);
+    setPaymentMethod(item.payment_method); setDescription(item.description); setError(""); setNotice("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function removeEntry(item: Entry) {
+    const kind = item.entry_type === "income" ? "income" : "expense";
+    if (!window.confirm(`Delete this ${kind} transaction for ${usd(item.amount_cents)} dated ${item.transaction_date}? This cannot be undone.`)) return;
+    setDeletingId(item.id); setError(""); setNotice("");
+    try {
+      const response = await fetch(`/api/manager/finances/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "This transaction could not be deleted.");
+      setEntries((current) => current.filter((entry) => entry.id !== item.id));
+      if (editingId === item.id) setEditingId(null);
+      setNotice("Transaction deleted. Business Reports now reflect the change.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "This transaction could not be deleted."); }
+    finally { setDeletingId(null); }
   }
 
   return <div style={{ display: "grid", gap: 22, marginTop: 24 }}>
@@ -102,7 +135,7 @@ export default function ManagerFinances() {
     </section>
 
     <section style={{ background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 28px)" }}>
-      <h2 style={{ margin: "0 0 6px" }}>Record a transaction</h2><p style={{ marginTop: 0, color: "#687786" }}>Enter income earned or expenses incurred. Keep the transaction date and the payment date for clear reporting.</p>
+      <h2 style={{ margin: "0 0 6px" }}>{editingId ? "Edit transaction" : "Record a transaction"}</h2><p style={{ marginTop: 0, color: "#687786" }}>{editingId ? "Update the saved details. Reports recalculate from the corrected transaction date and amount." : "Enter income earned or expenses incurred. Keep the transaction date and the payment date for clear reporting."}</p>
       {notice && <p role="status" style={{ padding: 12, borderRadius: 7, background: "#e8f5ec", color: "#176b40" }}>{notice}</p>}{error && <p role="alert" style={{ padding: 12, borderRadius: 7, background: "#fff0ef", color: "#8a3028" }}>{error}</p>}
       <form onSubmit={save}>
         <div style={{ display: "flex", gap: 10, marginBottom: 16 }}><button type="button" onClick={() => { setEntryType("income"); setCategory(incomeCategories[0]); }} style={{ ...button, background: entryType === "income" ? "#16834a" : "#edf2f4", color: entryType === "income" ? "white" : "#354858" }}>Add income</button><button type="button" onClick={() => { setEntryType("expense"); setCategory(expenseCategories[0]); }} style={{ ...button, background: entryType === "expense" ? "#16834a" : "#edf2f4", color: entryType === "expense" ? "white" : "#354858" }}>Add expense</button></div>
@@ -116,7 +149,7 @@ export default function ManagerFinances() {
           <label style={{ ...label, gridColumn: "1 / -1" }}>Business purpose or details<textarea required maxLength={1000} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} style={field} /></label>
         </div>
         <p style={{ color: "#687786", fontSize: 13 }}>For credit cards, record the purchase as the expense. A later card bill payment should not be entered as another expense.</p>
-        <button type="submit" disabled={saving} style={{ ...button, opacity: saving ? .7 : 1 }}>{saving ? "Saving…" : "Save transaction"}</button>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><button type="submit" disabled={saving} style={{ ...button, opacity: saving ? .7 : 1 }}>{saving ? "Saving…" : editingId ? "Save changes" : "Save transaction"}</button>{editingId && <button type="button" onClick={() => { setEditingId(null); setError(""); setNotice("Editing canceled."); }} style={{ ...button, background: "#edf2f4", color: "#354858" }}>Cancel edit</button>}</div>
       </form>
     </section>
 
@@ -130,7 +163,7 @@ export default function ManagerFinances() {
 
     <section style={{ background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 28px)" }}>
       <h2 style={{ margin: "0 0 5px" }}>Saved records</h2><p style={{ color: "#687786", marginTop: 0 }}>Transactions for {bounds.title}; saved records are retained when the reporting week changes.</p>
-      {loading ? <p>Loading saved records…</p> : visible.length === 0 ? <p style={{ color: "#687786" }}>No transactions have been recorded for this period.</p> : <div style={{ display: "grid", gap: 9 }}>{visible.map((item) => <article key={item.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, border: "1px solid #e3e9ed", borderRadius: 9, padding: 13 }}><div><strong>{item.description}</strong><div style={{ color: "#687786", fontSize: 14, marginTop: 4 }}>{item.transaction_date} · {item.category}{item.counterparty ? ` · ${item.counterparty}` : ""} · {item.payment_method}{item.paid_date ? ` · Paid ${item.paid_date}` : " · Payment date not entered"}</div></div><strong style={{ color: item.entry_type === "income" ? "#16834a" : "#a34732" }}>{item.entry_type === "income" ? "+" : "−"}{usd(item.amount_cents)}</strong></article>)}</div>}
+      {loading ? <p>Loading saved records…</p> : visible.length === 0 ? <p style={{ color: "#687786" }}>No transactions have been recorded for this period.</p> : <div style={{ display: "grid", gap: 9 }}>{visible.map((item) => <article key={item.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, border: "1px solid #e3e9ed", borderRadius: 9, padding: 13 }}><div><strong>{item.description}</strong><div style={{ color: "#687786", fontSize: 14, marginTop: 4 }}>{item.transaction_date} · {item.category}{item.counterparty ? ` · ${item.counterparty}` : ""} · {item.payment_method}{item.paid_date ? ` · Paid ${item.paid_date}` : " · Payment date not entered"}</div><div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}><button type="button" onClick={() => beginEdit(item)} style={{ ...button, padding: "7px 11px", fontSize: 13, background: "#edf2f4", color: "#354858" }}>Edit</button><button type="button" disabled={deletingId === item.id} onClick={() => void removeEntry(item)} style={{ ...button, padding: "7px 11px", fontSize: 13, background: "#fff0ef", color: "#8a3028", opacity: deletingId === item.id ? .6 : 1 }}>{deletingId === item.id ? "Deleting…" : "Delete"}</button></div></div><strong style={{ color: item.entry_type === "income" ? "#16834a" : "#a34732" }}>{item.entry_type === "income" ? "+" : "−"}{usd(item.amount_cents)}</strong></article>)}</div>}
     </section>
   </div>;
 }
