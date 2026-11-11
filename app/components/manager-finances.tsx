@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { createFinancialReportPdf, type FinancialReportEntry } from "../lib/financial-report-pdf";
 
 type Entry = {
   id: string; entry_type: "income" | "expense"; transaction_date: string; paid_date: string | null;
@@ -37,6 +38,11 @@ export default function ManagerFinances() {
   const [description, setDescription] = useState("");
   const [period, setPeriod] = useState<"week" | "month">("week");
   const [periodOffset, setPeriodOffset] = useState(0);
+  const [reportPeriod, setReportPeriod] = useState<"week" | "month" | "year" | "ytd">("month");
+  const [reportAnchor, setReportAnchor] = useState(localToday);
+  const [reportYear, setReportYear] = useState(String(dateAtNoon(localToday()).getUTCFullYear()));
+  const [exportingReport, setExportingReport] = useState(false);
+  const [reportExportError, setReportExportError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -82,6 +88,49 @@ export default function ManagerFinances() {
       return { label: first.toLocaleDateString("en-US", { timeZone: "America/Phoenix", month: "short" }), income: month.filter((e) => e.entry_type === "income").reduce((s, e) => s + e.amount_cents, 0), expense: month.filter((e) => e.entry_type === "expense").reduce((s, e) => s + e.amount_cents, 0) };
     });
   }, [entries, period, bounds]);
+
+  const reportBounds = useMemo(() => {
+    if (reportPeriod === "ytd") {
+      const today = localToday();
+      return { start: `${today.slice(0, 4)}-01-01`, end: today, title: "Year to date" };
+    }
+    if (reportPeriod === "year") return { start: `${reportYear}-01-01`, end: `${reportYear}-12-31`, title: `${reportYear} annual report` };
+    const anchor = dateAtNoon(reportAnchor);
+    if (reportPeriod === "week") {
+      const sunday = new Date(anchor); sunday.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay());
+      const saturday = new Date(sunday); saturday.setUTCDate(sunday.getUTCDate() + 6);
+      return { start: dateString(sunday), end: dateString(saturday), title: "Weekly report" };
+    }
+    const first = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1, 12));
+    const last = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 0, 12));
+    return { start: dateString(first), end: dateString(last), title: "Monthly report" };
+  }, [reportPeriod, reportAnchor, reportYear]);
+  const reportEntries = useMemo(() => entries.filter((entry) => entry.transaction_date >= reportBounds.start && entry.transaction_date <= reportBounds.end), [entries, reportBounds]);
+  const currentYear = dateAtNoon(localToday()).getUTCFullYear();
+  const firstEntryYear = entries.length ? Math.min(...entries.map((entry) => Number(entry.transaction_date.slice(0, 4)))) : currentYear;
+  const reportYears = Array.from({ length: Math.max(1, currentYear - firstEntryYear + 1) }, (_, index) => String(currentYear - index));
+
+  async function downloadFinancialReport() {
+    setExportingReport(true); setReportExportError("");
+    try {
+      let logoBytes: Uint8Array | undefined;
+      const logoResponse = await fetch("/images/tc-cleaning-logo.png", { cache: "force-cache" });
+      if (logoResponse.ok) logoBytes = new Uint8Array(await logoResponse.arrayBuffer());
+      const generatedAt = new Intl.DateTimeFormat("en-US", { timeZone: "America/Phoenix", dateStyle: "medium", timeStyle: "short" }).format(new Date());
+      const pdfBytes = await createFinancialReportPdf(reportEntries as FinancialReportEntry[], reportBounds.title, reportBounds.start, reportBounds.end, generatedAt, logoBytes);
+      const pdfArrayBuffer = new ArrayBuffer(pdfBytes.byteLength);
+      new Uint8Array(pdfArrayBuffer).set(pdfBytes);
+      const blob = new Blob([pdfArrayBuffer], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `TC-Cleaning-${reportPeriod === "ytd" ? "year-to-date" : reportPeriod}-${reportBounds.start}-to-${reportBounds.end}.pdf`;
+      document.body.appendChild(link); link.click(); link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setReportExportError("The PDF could not be created. Please try again.");
+    } finally { setExportingReport(false); }
+  }
 
   const visible = entries.filter((entry) => entry.transaction_date >= bounds.start && entry.transaction_date <= bounds.end);
   const totals = visible.reduce((sum, entry) => { sum[entry.entry_type] += entry.amount_cents; return sum; }, { income: 0, expense: 0 });
@@ -159,6 +208,20 @@ export default function ManagerFinances() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 20 }}><Summary label="Income earned" amount={totals.income} color="#16834a" /><Summary label="Expenses incurred" amount={totals.expense} color="#d36e4e" /><Summary label="Net activity" amount={totals.income - totals.expense} color="#172b3d" /></div>
       <Chart data={chart} max={max} />
       <p style={{ color: "#687786", fontSize: 13, marginBottom: 0 }}>Weekly reporting runs Sunday through Saturday in Arizona time. A new week starts Sunday; all prior entries and reports remain saved. Figures are grouped by the job/expense date (accrual view).</p>
+    </section>
+
+    <section style={{ background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 28px)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}><Image src="/images/tc-cleaning-logo.png" alt="" width={1026} height={695} style={{ width: 58, height: "auto", borderRadius: 5 }} /><div><p style={{ color: "#16834a", fontSize: 12, fontWeight: 700, letterSpacing: ".08em", margin: "0 0 4px" }}>TC CLEANING FINANCIALS</p><h2 style={{ margin: 0 }}>Export a branded PDF report</h2></div></div>
+      <p style={{ color: "#687786", marginTop: 0 }}>Download a TC Cleaning branded report with actual saved transactions, date range totals, and a detailed transaction list.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,210px),1fr))", alignItems: "end", gap: 14 }}>
+        <label style={label}>Report period<select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as "week" | "month" | "year" | "ytd")} style={field}><option value="week">Weekly</option><option value="month">Monthly</option><option value="year">Yearly</option><option value="ytd">Year to date</option></select></label>
+        {(reportPeriod === "week" || reportPeriod === "month") && <label style={label}>{reportPeriod === "week" ? "Choose a date in the week" : "Choose a date in the month"}<input type="date" value={reportAnchor} onChange={(event) => setReportAnchor(event.target.value)} style={field} /></label>}
+        {reportPeriod === "year" && <label style={label}>Report year<select value={reportYear} onChange={(event) => setReportYear(event.target.value)} style={field}>{reportYears.map((year) => <option key={year} value={year}>{year}</option>)}</select></label>}
+        <div style={{ color: "#465766", fontSize: 14, paddingBottom: 10 }}>{reportBounds.start} to {reportBounds.end}<br />{reportEntries.length} transaction{reportEntries.length === 1 ? "" : "s"} included</div>
+        <button type="button" disabled={exportingReport} onClick={() => void downloadFinancialReport()} style={{ ...button, opacity: exportingReport ? .7 : 1 }}>{exportingReport ? "Preparing PDF…" : "Download PDF report"}</button>
+      </div>
+      {reportPeriod === "ytd" && <p style={{ color: "#687786", fontSize: 13, marginBottom: 0 }}>Year to date includes January 1 through today, using transaction dates for accrual reporting.</p>}
+      {reportExportError && <p role="alert" style={{ padding: 12, borderRadius: 7, background: "#fff0ef", color: "#8a3028", marginBottom: 0 }}>{reportExportError}</p>}
     </section>
 
     <section style={{ background: "white", border: "1px solid #e3e9ed", borderRadius: 12, padding: "clamp(18px, 4vw, 28px)" }}>
