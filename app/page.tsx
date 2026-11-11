@@ -171,7 +171,6 @@ export default function Home() {
               <span className="caption-dot" />
               LOCALLY OWNED. PROFESSIONALLY CLEANED.
             </div>
-            <div className="hero-image-accent" />
           </div>
         </div>
       </section>

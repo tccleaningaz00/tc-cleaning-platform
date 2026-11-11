@@ -314,17 +314,6 @@ img {
   object-position: center;
 }
 
-.hero-image-accent {
-  position: absolute;
-  width: 160px;
-  height: 130px;
-  background: var(--green);
-  right: -12px;
-  bottom: 0;
-  z-index: 0;
-  border-radius: 5px;
-}
-
 .image-caption {
   position: absolute;
   bottom: 43px;
