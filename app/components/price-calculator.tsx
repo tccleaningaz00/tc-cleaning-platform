@@ -180,17 +180,17 @@ export default function PriceCalculator() {
         }),
       });
 
-      const result = (await response.json()) as {
-  success?: boolean;
-  error?: string;
-  estimateId?: string;
-};
+      const result = (await response.json().catch(() => null)) as {
+        success?: boolean;
+        error?: string;
+        estimateId?: string;
+      } | null;
 
-if (!response.ok || !result.success) {
-  throw new Error(
-    result.error || "We could not submit your request. Please try again."
-  );
-}
+      if (!response.ok || !result?.success) {
+        throw new Error(
+          result?.error || "We could not submit your request. Please try again or call (480) 310-8040."
+        );
+      }
 
       setSuccess(
         "Thank you! Your quote request has been received. Cris will review your information and follow up. This request does not confirm an appointment."
