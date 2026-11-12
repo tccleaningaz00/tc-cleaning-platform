@@ -14,6 +14,9 @@ export const metadata: Metadata = {
     "residential cleaning Arizona",
     "deep cleaning Mesa",
   ],
+  verification: {
+    google: "KJQAzJdb7ESgWFwBsZq5uXAs-_9wWgyDxeCFPt4nA0E",
+  },
   robots: {
     index: true,
     follow: true,
