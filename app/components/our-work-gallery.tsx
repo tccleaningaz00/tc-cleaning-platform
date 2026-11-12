@@ -119,7 +119,7 @@ export default function OurWorkGallery() {
           <span className={styles.emptyIcon} aria-hidden="true">✦</span>
           <h3>{activeCategory}</h3>
           <p>We’re putting this part of the gallery together. Check back soon for a look at these spaces.</p>
-          <Link href="/#contact">Ask us about your home <span aria-hidden="true">→</span></Link>
+          <Link href="/#price-calculator">Ask us about your home <span aria-hidden="true">→</span></Link>
         </div>
       )}
     </section>

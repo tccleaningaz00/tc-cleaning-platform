@@ -112,7 +112,7 @@ export default function Home() {
             <a href="#contact">Contact</a>
           </nav>
 
-          <a href="#contact" className="button button-green header-button">
+          <a href="#price-calculator" className="button button-green header-button">
             Get a Free Quote <span>→</span>
           </a>
         </div>
@@ -143,7 +143,7 @@ export default function Home() {
               <a href="tel:4803108040" className="button button-blue">
                 Call (480) 310-8040
               </a>
-              <a href="#contact" className="button button-outline">
+              <a href="#price-calculator" className="button button-outline">
                 Request a Quote →
               </a>
             </div>
@@ -227,7 +227,7 @@ export default function Home() {
                   <span>GOOD FIT FOR</span>
                   <p>{service.bestFor}</p>
                 </div>
-                <a href="#contact" className="service-link">
+                <a href="#price-calculator" className="service-link">
                   Get a Quote <span>→</span>
                 </a>
               </article>
@@ -310,7 +310,7 @@ export default function Home() {
               <strong>— Crisrra Condado</strong>
               <span>Founder &amp; Owner | TC Cleaning Services AZ LLC</span>
             </div>
-            <a href="#contact" className="button button-blue">
+            <a href="#price-calculator" className="button button-blue">
               Let&apos;s Talk About Your Home →
             </a>
           </div>
@@ -397,10 +397,10 @@ export default function Home() {
               Call (480) 310-8040
             </a>
             <a
-              href="mailto:tc.cleaningaz@gmail.com?subject=Cleaning%20Quote%20Request"
+              href="#price-calculator"
               className="button button-white"
             >
-              Email Us for a Quote
+              Request a Quote
             </a>
           </div>
         </div>

@@ -28,7 +28,7 @@ export default function OurWorkPage() {
           <Link href="/">Home</Link>
           <Link href="/#services">Services</Link>
           <Link href="/#about">About</Link>
-          <Link href="/#contact" className={styles.navCta}>Get a quote <span aria-hidden="true">↗</span></Link>
+          <Link href="/#price-calculator" className={styles.navCta}>Get a quote <span aria-hidden="true">↗</span></Link>
         </nav>
       </header>
 
@@ -41,7 +41,7 @@ export default function OurWorkPage() {
               Every home is different. Here are a few of the spaces our team
               gets to care for across Mesa and the East Valley.
             </p>
-            <Link className={styles.heroLink} href="/#contact">Let’s talk about your home <span aria-hidden="true">→</span></Link>
+            <Link className={styles.heroLink} href="/#price-calculator">Let’s talk about your home <span aria-hidden="true">→</span></Link>
           </div>
           <div className={styles.heroMark} aria-hidden="true">
             <span>TC</span>
@@ -62,7 +62,7 @@ export default function OurWorkPage() {
           <span className={styles.eyebrow}>READY FOR A FRESH START?</span>
           <h2>Your home, cared for with intention.</h2>
         </div>
-        <Link href="/#contact">Request a quote <span aria-hidden="true">→</span></Link>
+        <Link href="/#price-calculator">Request a quote <span aria-hidden="true">→</span></Link>
       </section>
 
       <footer className={styles.footer}>
