@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import { recordPublicDocumentView } from "../lib/public-document-views";
 type Item = { description: string; quantity: number; lineTotalCents: number };
 type PublicEstimate = { estimateNumber: string; clientName: string; propertyAddress: string; serviceType: string; scope: string; totalCents: number; depositPercent: number; depositCents: number; status: string; validUntil: string; items: Item[]; paymentOptions: { chasePaymentUrl: string; venmoUrl: string; zelleRecipient: string } | null };
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -13,6 +14,7 @@ export default function PublicEstimate({ token }: { token: string }) {
       const data = await response.json() as { estimate?: PublicEstimate; error?: string };
       if (!response.ok || !data.estimate) throw new Error(data.error || "Estimate could not be loaded.");
       setEstimate(data.estimate);
+      void recordPublicDocumentView("estimate", token);
     }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Estimate could not be loaded."));
   }, [token]);
   async function approve() { setBusy(true); setError(""); setMessage(""); try { const response = await fetch(`/api/public-estimates/${encodeURIComponent(token)}/approve`, { method: "POST" }); const data = await response.json() as { estimate?: PublicEstimate; error?: string }; if (!response.ok || !data.estimate) throw new Error(data.error || "Approval could not be recorded."); setEstimate(data.estimate); setMessage("Thank you. Your estimate is approved. You can pay the deposit using one of the options below."); } catch (e) { setError(e instanceof Error ? e.message : "Approval could not be recorded."); } finally { setBusy(false); } }

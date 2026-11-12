@@ -102,6 +102,12 @@ function money(cents: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
 
+function invoiceForManager(invoice: InvoiceRow) {
+  const safeInvoice = { ...invoice };
+  delete safeInvoice.public_view_token;
+  return safeInvoice;
+}
+
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
@@ -123,14 +129,14 @@ async function getInvoiceLogo() {
   }
 }
 
-function invoiceEmailHtml(invoice: InvoiceRow, items: InvoiceItemRow[]) {
+function invoiceEmailHtml(invoice: InvoiceRow, items: InvoiceItemRow[], publicUrl: string) {
   const rows = items.map((item) => `<tr><td style="padding:12px;border-bottom:1px solid #e6ebef">${escapeHtml(item.description)}</td><td style="padding:12px;text-align:center;border-bottom:1px solid #e6ebef">${item.quantity}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.unit_price_cents)}</td><td style="padding:12px;text-align:right;border-bottom:1px solid #e6ebef">${money(item.line_total_cents)}</td></tr>`).join("");
   const address = invoice.billing_address ? `<br>${escapeHtml(invoice.billing_address).replace(/\n/g, "<br>")}` : "";
   const notes = invoice.notes ? `<p style="white-space:pre-line;color:#52616d">${escapeHtml(invoice.notes)}</p>` : "";
   const paymentButton = invoice.payment_url ? `<div style="margin:28px 0;text-align:center"><a href="${escapeHtml(invoice.payment_url)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#18834a;color:#fff;text-decoration:none;font-weight:bold">Pay by card</a><p style="margin:10px 0 0;color:#687786;font-size:13px">Secure checkout provided by Chase.</p></div>` : "";
   const venmoButton = invoice.venmo_url ? `<div style="margin:16px 0;text-align:center"><a href="${escapeHtml(invoice.venmo_url)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#008CFF;color:#fff;text-decoration:none;font-weight:bold">Pay with Venmo</a><p style="margin:10px 0 0;color:#687786;font-size:13px">Enter the invoice total of ${money(invoice.total_cents)} in Venmo.</p></div>` : "";
   const zelleInstructions = invoice.zelle_recipient ? `<div style="margin:16px 0;padding:18px;border:1px solid #dce3e8;border-radius:8px;background:#f8fafb;text-align:center"><strong style="color:#5b2c83">Pay with Zelle</strong><p style="margin:8px 0;color:#354858">In your banking app, choose Zelle and send <strong>${money(invoice.total_cents)}</strong> to:</p><p style="margin:0;font-size:19px;font-weight:bold;color:#172b3d">${escapeHtml(invoice.zelle_recipient)}</p><p style="margin:8px 0 0;color:#687786;font-size:13px">Please include invoice ${escapeHtml(invoice.invoice_number)} in the payment note.</p></div>` : "";
-  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Total <strong>${money(invoice.total_cents)}</strong></p></div>${paymentButton}${venmoButton}${zelleInstructions}${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
+  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p style="text-align:center;margin:24px 0"><a href="${escapeHtml(publicUrl)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#16834a;color:#fff;text-decoration:none;font-weight:bold">View invoice online</a></p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Total <strong>${money(invoice.total_cents)}</strong></p></div>${paymentButton}${venmoButton}${zelleInstructions}${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
 }
 
 function invoiceReceiptHtml(invoice: InvoiceRow, items: InvoiceItemRow[], paidAt: string) {
@@ -142,6 +148,11 @@ interface InvoiceRow {
   id: string; invoice_number: string; customer_id: string | null; client_name: string; client_email: string;
   client_phone: string; billing_address: string; issue_date: string; due_date: string; notes: string;
   payment_url?: string;
+  public_view_token?: string | null;
+  view_count?: number;
+  has_view_link?: number | boolean;
+  first_viewed_at?: string | null;
+  last_viewed_at?: string | null;
   venmo_url?: string; zelle_recipient?: string;
   status: string; subtotal_cents: number; tax_cents: number; total_cents: number; sent_at: string | null;
   receipt_status?: "not_sent" | "sending" | "sent" | "failed"; receipt_sent_at?: string | null;
@@ -161,6 +172,7 @@ interface ManagerEstimateRow {
   scope: string; total_cents: number; deposit_percent: number; deposit_cents: number; status: string;
   approval_token: string | null; chase_payment_url: string; venmo_url: string; zelle_recipient: string;
   valid_until: string; sent_at: string | null; approved_at: string | null; deposit_paid_at: string | null;
+  view_count?: number; first_viewed_at?: string | null; last_viewed_at?: string | null;
   created_at: string; items?: InvoiceItemRow[];
 }
 
@@ -509,6 +521,8 @@ const worker = {
     const managerEstimateSendMatch = path.match(/^\/manager-estimates\/([^/]+)\/send$/);
     const managerEstimatePaidMatch = path.match(/^\/manager-estimates\/([^/]+)\/deposit-paid$/);
     const publicEstimateMatch = path.match(/^\/public-estimates\/([^/]+)(?:\/(approve))?$/);
+    const publicInvoiceMatch = path.match(/^\/public-invoices\/([^/]+)$/);
+    const publicDocumentViewMatch = path.match(/^\/public-document-views\/(invoice|estimate)\/([^/]+)$/);
     const publicArticleRoute = path === "/articles" || Boolean(publicArticleMatch);
     const publicGalleryRoute = path === "/gallery" || Boolean(galleryImageMatch);
     const managerGalleryRoute = path === "/manager-gallery" || Boolean(managerGalleryPhotoMatch);
@@ -517,18 +531,20 @@ const worker = {
     const managerInvoiceRoute = path === "/manager-invoices" || path === "/manager-invoice-sender-status" || Boolean(managerInvoiceMatch) || Boolean(managerInvoiceSendMatch) || Boolean(managerInvoicePaidMatch);
     const managerEstimateRoute = path === "/manager-estimates" || Boolean(managerEstimateSendMatch) || Boolean(managerEstimatePaidMatch);
     const publicEstimateRoute = Boolean(publicEstimateMatch);
+    const publicInvoiceRoute = Boolean(publicInvoiceMatch);
+    const publicDocumentViewRoute = Boolean(publicDocumentViewMatch);
     const managerLedgerEntryMatch = path.match(/^\/manager-ledger\/([^/]+)$/);
     const managerLedgerRoute = path === "/manager-ledger" || Boolean(managerLedgerEntryMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
+    if (!publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
     const authorization = request.headers.get("Authorization");
 
     if (
-      !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute &&
+      !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute &&
       (!env.API_SECRET || authorization !== `Bearer ${env.API_SECRET}`)
     ) {
       return json({ error: "Unauthorized" }, 401);
@@ -657,6 +673,54 @@ const worker = {
           errorName: error instanceof Error ? error.name : "UnknownError",
         });
         return json({ error: "Article is temporarily unavailable." }, 500);
+      }
+    }
+
+    if (publicDocumentViewMatch) {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!request.headers.get("Content-Type")?.includes("application/json")) return json({ error: "JSON required." }, 415);
+      let body: unknown;
+      try { body = await request.json(); } catch { return json({ error: "Invalid view details." }, 400); }
+      const sessionId = isRecord(body) && typeof body.sessionId === "string" ? body.sessionId : "";
+      if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return json({ error: "Invalid view details." }, 400);
+      const [, documentType, token] = publicDocumentViewMatch;
+      if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return json({ error: "Document not found." }, 404);
+      try {
+        let documentId: string | null = null;
+        if (documentType === "invoice") {
+          const invoice = await env.DB.prepare("SELECT id FROM invoices WHERE public_view_token = ? AND status IN ('sent', 'paid')").bind(token).first<{ id: string }>();
+          documentId = invoice?.id || null;
+        } else {
+          const estimate = await env.DB.prepare("SELECT id FROM manager_estimates WHERE approval_token = ? AND status IN ('sent', 'approved', 'deposit_paid')").bind(token).first<{ id: string }>();
+          documentId = estimate?.id || null;
+        }
+        if (!documentId) return json({ error: "Document not found." }, 404);
+        await env.DB.prepare("INSERT INTO document_views (document_type, document_id, session_id) VALUES (?, ?, ?) ON CONFLICT(document_type, document_id, session_id) DO NOTHING").bind(documentType, documentId, sessionId).run();
+        return json({ success: true });
+      } catch (error) {
+        console.error("Document view could not be recorded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "The document view could not be recorded." }, 500);
+      }
+    }
+
+    if (publicInvoiceMatch) {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      const token = publicInvoiceMatch[1];
+      if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return json({ error: "Invoice link is invalid or unavailable." }, 404);
+      try {
+        const invoice = await env.DB.prepare("SELECT * FROM invoices WHERE public_view_token = ? AND status IN ('sent', 'paid')").bind(token).first<InvoiceRow>();
+        if (!invoice) return json({ error: "Invoice link is invalid or unavailable." }, 404);
+        const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(invoice.id).all<InvoiceItemRow>();
+        return json({ success: true, invoice: {
+          invoiceNumber: invoice.invoice_number, clientName: invoice.client_name, billingAddress: invoice.billing_address,
+          issueDate: invoice.issue_date, dueDate: invoice.due_date, notes: invoice.notes, status: invoice.status,
+          subtotalCents: invoice.subtotal_cents, taxCents: invoice.tax_cents, totalCents: invoice.total_cents,
+          paymentUrl: invoice.payment_url || "", venmoUrl: invoice.venmo_url || "", zelleRecipient: invoice.zelle_recipient || "",
+          items: items.results || [],
+        } });
+      } catch (error) {
+        console.error("Public invoice could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "This invoice is temporarily unavailable." }, 500);
       }
     }
 
@@ -904,7 +968,7 @@ const worker = {
     if (managerEstimateRoute) {
       if (path === "/manager-estimates" && request.method === "GET") {
         try {
-          const estimates = await env.DB.prepare(`SELECT e.*, (SELECT COUNT(*) FROM manager_estimate_items i WHERE i.estimate_id = e.id) AS item_count FROM manager_estimates e ORDER BY e.created_at DESC LIMIT 200`).all<ManagerEstimateRow>();
+          const estimates = await env.DB.prepare(`SELECT e.*, (SELECT COUNT(*) FROM manager_estimate_items i WHERE i.estimate_id = e.id) AS item_count, (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS view_count, (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS first_viewed_at, (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS last_viewed_at FROM manager_estimates e ORDER BY e.created_at DESC LIMIT 200`).all<ManagerEstimateRow>();
           const quotes = await env.DB.prepare(`
             SELECT e.id AS quote_id, e.customer_id, e.property_id, e.service_type, e.estimate_notes, e.created_at,
               c.first_name, c.last_name, c.email, c.phone,
@@ -1009,11 +1073,15 @@ const worker = {
       if (request.method === "GET" && path === "/manager-invoices") {
         try {
           const result = await env.DB.prepare(`
-            SELECT i.*, COALESCE(SUM(ii.line_total_cents), 0) AS item_total_cents
+            SELECT i.*, COALESCE(SUM(ii.line_total_cents), 0) AS item_total_cents,
+              (i.public_view_token IS NOT NULL) AS has_view_link,
+              (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS view_count,
+              (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS first_viewed_at,
+              (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS last_viewed_at
             FROM invoices i LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
             GROUP BY i.id ORDER BY i.created_at DESC
           `).all<InvoiceRow>();
-          return json({ success: true, invoices: result.results || [] });
+          return json({ success: true, invoices: (result.results || []).map(invoiceForManager) });
         } catch (error) {
           console.error("Invoice list could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
           return json({ error: "Invoices are temporarily unavailable." }, 500);
@@ -1024,10 +1092,10 @@ const worker = {
         const id = managerInvoiceMatch[1];
         if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
         try {
-          const invoice = await env.DB.prepare("SELECT * FROM invoices WHERE id = ?").bind(id).first<InvoiceRow>();
+          const invoice = await env.DB.prepare(`SELECT i.*, (i.public_view_token IS NOT NULL) AS has_view_link, (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS view_count, (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS first_viewed_at, (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS last_viewed_at FROM invoices i WHERE i.id = ?`).bind(id).first<InvoiceRow>();
           if (!invoice) return json({ error: "Invoice not found." }, 404);
           const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
-          return json({ success: true, invoice: { ...invoice, items: items.results || [] } });
+          return json({ success: true, invoice: { ...invoiceForManager(invoice), items: items.results || [] } });
         } catch (error) {
           console.error("Invoice details could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
           return json({ error: "Invoice details are temporarily unavailable." }, 500);
@@ -1079,13 +1147,17 @@ const worker = {
         if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
         if (!env.RESEND_INVOICE_API_KEY) return json({ error: "Invoice sending is not configured yet. The draft is saved; configure the dedicated invoice email key to send from invoices@tccleaningaz.com." }, 503);
         try {
-          const claimed = await env.DB.prepare("UPDATE invoices SET status = 'sending', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'draft'").bind(id).run();
+          const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+          const generatedViewToken = btoa(String.fromCharCode(...tokenBytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+          const claimed = await env.DB.prepare("UPDATE invoices SET status = 'sending', public_view_token = COALESCE(public_view_token, ?), updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'draft'").bind(generatedViewToken, id).run();
           if (!claimed.meta.changes) return json({ error: "Only a saved draft can be sent. Refresh the invoice list to see its latest status." }, 409);
           const invoice = await env.DB.prepare("SELECT * FROM invoices WHERE id = ?").bind(id).first<InvoiceRow>();
           const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
           if (!invoice) throw new Error("Invoice record missing after send claim.");
+          if (!invoice.public_view_token) throw new Error("Public invoice view token was not saved.");
+          const publicUrl = `https://www.tccleaningaz.com/invoice/${invoice.public_view_token}`;
           const lines = (items.results || []).map((item) => `${item.description} | ${item.quantity} × ${money(item.unit_price_cents)} = ${money(item.line_total_cents)}`).join("\n");
-          const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, ...(invoice.payment_url ? ["", "Pay by card via Chase:", invoice.payment_url] : []), ...(invoice.venmo_url ? ["", "Pay with Venmo:", invoice.venmo_url, `Enter ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), ...(invoice.zelle_recipient ? ["", "Pay with Zelle from your banking app:", invoice.zelle_recipient, `Send ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
+          const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", "View invoice online:", publicUrl, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, ...(invoice.payment_url ? ["", "Pay by card via Chase:", invoice.payment_url] : []), ...(invoice.venmo_url ? ["", "Pay with Venmo:", invoice.venmo_url, `Enter ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), ...(invoice.zelle_recipient ? ["", "Pay with Zelle from your banking app:", invoice.zelle_recipient, `Send ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
           let invoicePdf: Uint8Array;
           try {
             invoicePdf = await createInvoicePdf(invoice, items.results || [], await getInvoiceLogo());
@@ -1102,7 +1174,7 @@ const worker = {
               to: [invoice.client_email],
               subject: `Invoice ${invoice.invoice_number} from TC Cleaning Services`,
               text: textBody,
-              html: invoiceEmailHtml(invoice, items.results || []),
+              html: invoiceEmailHtml(invoice, items.results || [], publicUrl),
               attachments: [{ filename: `TC-Cleaning-Invoice-${invoice.invoice_number}.pdf`, content: bytesToBase64(invoicePdf), content_type: "application/pdf" }],
             }),
           });
