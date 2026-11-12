@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import styles from "./price-calculator.module.css";
+import { trackAnalyticsEvent } from "../lib/analytics";
 import {
   ADD_ON_LABELS,
   PRICING_CONFIG,
@@ -35,6 +36,12 @@ export default function PriceCalculator() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const hasTrackedFormStart = useRef(false);
+
+  function showValidationError(message: string, errorType: string) {
+    trackAnalyticsEvent("quote_form_error", { error_type: errorType });
+    setError(message);
+  }
 
   const estimate = useMemo(() => {
     const sqft = Number(squareFeet);
@@ -125,34 +132,34 @@ export default function PriceCalculator() {
     setSuccess("");
 
     if (!firstName.trim() || !lastName.trim()) {
-      setError("Please enter your first and last name.");
+      showValidationError("Please enter your first and last name.", "name_missing");
       return;
     }
 
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10 || digits.length > 15) {
-      setError("Please enter a valid phone number.");
+      showValidationError("Please enter a valid phone number.", "phone_invalid");
       return;
     }
 
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError("Please enter a valid email address.");
+      showValidationError("Please enter a valid email address.", "email_invalid");
       return;
     }
 
     if (!addressLine1.trim() || !city.trim()) {
-      setError("Please enter the property's street address and city.");
+      showValidationError("Please enter the property's street address and city.", "address_missing");
       return;
     }
 
     if (!/^\d{5}$/.test(zip)) {
-      setError("Please enter a valid 5-digit ZIP code.");
+      showValidationError("Please enter a valid 5-digit ZIP code.", "zip_invalid");
       return;
     }
 
     const sqft = Number(squareFeet);
     if (!Number.isInteger(sqft) || sqft < 100 || sqft > 20000) {
-      setError("Please enter square footage between 100 and 20,000.");
+      showValidationError("Please enter square footage between 100 and 20,000.", "square_feet_invalid");
       return;
     }
 
@@ -195,7 +202,9 @@ export default function PriceCalculator() {
       setSuccess(
         "Thank you! Your quote request has been received. Cris will review your information and follow up. This request does not confirm an appointment."
       );
+      trackAnalyticsEvent("generate_lead", { method: "website_quote_form", service_type: service });
     } catch (err) {
+      trackAnalyticsEvent("quote_form_error", { error_type: "submission_failed" });
       setError(
         err instanceof Error
           ? err.message
@@ -218,7 +227,22 @@ export default function PriceCalculator() {
           </p>
         </header>
 
-        <form className={styles.card} onSubmit={requestQuote}>
+        <form
+          className={styles.card}
+          onSubmit={requestQuote}
+          onFocusCapture={() => {
+            if (hasTrackedFormStart.current) return;
+            hasTrackedFormStart.current = true;
+            trackAnalyticsEvent("quote_form_start");
+          }}
+          onInvalidCapture={(event) => {
+            const field = event.target;
+            trackAnalyticsEvent("quote_form_error", {
+              error_type: "browser_validation",
+              field_type: field instanceof HTMLInputElement ? field.type : "other",
+            });
+          }}
+        >
           <h3>Contact Information</h3>
 
           <div className={styles.grid}>
