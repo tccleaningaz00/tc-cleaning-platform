@@ -2,7 +2,18 @@ import Link from "next/link";
 import Image from "next/image";
 import { getPublishedArticles, type Article } from "../lib/articles";
 
-export const metadata = { title: "Cleaning Tips & Advice | TC Cleaning Services AZ LLC", description: "Helpful home cleaning recommendations from TC Cleaning Services AZ LLC in Arizona's East Valley." };
+export const metadata = {
+  title: "Cleaning Tips & Advice | TC Cleaning Services AZ LLC",
+  description:
+    "Practical home cleaning recommendations from TC Cleaning Services AZ LLC, serving Mesa and Arizona's East Valley.",
+  alternates: { canonical: "/articles" },
+  openGraph: {
+    title: "Cleaning Tips & Advice | TC Cleaning Services AZ LLC",
+    description:
+      "Practical home cleaning recommendations from TC Cleaning Services AZ LLC, serving Mesa and Arizona's East Valley.",
+    url: "/articles",
+  },
+};
 export const dynamic = "force-dynamic";
 
 export default async function ArticlesPage() {

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://www.tccleaningaz.com"),
   title: "TC Cleaning Services AZ LLC | Mesa & East Valley",
   description:
     "Professional residential, recurring, deep cleaning, and move-in/move-out cleaning services in Mesa, Gilbert, Chandler, Tempe, Queen Creek, Phoenix, and Scottsdale, Arizona.",
@@ -13,10 +14,39 @@ export const metadata: Metadata = {
     "residential cleaning Arizona",
     "deep cleaning Mesa",
   ],
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
   openGraph: {
     title: "TC Cleaning Services AZ LLC",
-    description: "A Cleaner Home. A Better Life.",
+    description:
+      "Dependable residential and commercial cleaning in Mesa and Arizona's East Valley.",
     type: "website",
+    url: "/",
+    siteName: "TC Cleaning Services AZ LLC",
+    images: [
+      {
+        url: "/images/branded-truck.jpg",
+        width: 1536,
+        height: 1152,
+        alt: "TC Cleaning Services AZ LLC service truck in Arizona",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TC Cleaning Services AZ LLC | Mesa & East Valley",
+    description:
+      "Dependable residential and commercial cleaning in Mesa and Arizona's East Valley.",
+    images: ["/images/branded-truck.jpg"],
   },
 };
 

@@ -8,6 +8,14 @@ export const metadata: Metadata = {
   title: "Our Work | TC Cleaning Services AZ LLC",
   description:
     "Take a look at the home spaces TC Cleaning Services cares for across Mesa and the East Valley.",
+  alternates: { canonical: "/our-work" },
+  openGraph: {
+    title: "Our Work | TC Cleaning Services AZ LLC",
+    description:
+      "See kitchen and bathroom cleaning work from TC Cleaning Services in Mesa and the East Valley.",
+    url: "/our-work",
+    images: ["/images/our-work/kitchen-03.jpg"],
+  },
 };
 
 export default function OurWorkPage() {

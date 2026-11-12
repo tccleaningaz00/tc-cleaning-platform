@@ -8,7 +8,21 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const article = await getPublishedArticle(slug).catch(() => null);
-  return article ? { title: `${article.title} | TC Cleaning Services AZ LLC`, description: article.excerpt } : { title: "Cleaning Advice | TC Cleaning Services AZ LLC" };
+  return article
+    ? {
+        title: `${article.title} | TC Cleaning Services AZ LLC`,
+        description: article.excerpt,
+        alternates: { canonical: `/articles/${encodeURIComponent(article.slug)}` },
+        openGraph: {
+          title: `${article.title} | TC Cleaning Services AZ LLC`,
+          description: article.excerpt,
+          url: `/articles/${encodeURIComponent(article.slug)}`,
+          type: "article",
+          publishedTime: article.publishedAt || article.createdAt,
+          modifiedTime: article.updatedAt,
+        },
+      }
+    : { title: "Cleaning Advice | TC Cleaning Services AZ LLC", robots: { index: false, follow: false } };
 }
 
 export default async function ArticlePage({ params }: { params: Promise<{ slug: string }> }) {

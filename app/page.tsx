@@ -1,8 +1,13 @@
 import GoogleReviews from "./components/google-reviews";
 import PriceCalculator from "./components/price-calculator";
 import SocialShowcase from "./components/social-showcase";
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 const services = [
   {
@@ -62,6 +67,45 @@ const serviceAreas = [
 export default function Home() {
   return (
     <main>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            name: "TC Cleaning Services AZ LLC",
+            url: "https://www.tccleaningaz.com/",
+            logo: "https://www.tccleaningaz.com/images/tc-cleaning-logo.png",
+            image: "https://www.tccleaningaz.com/images/branded-truck.jpg",
+            telephone: "+1-480-310-8040",
+            email: "tc.cleaningaz@gmail.com",
+            description:
+              "Locally owned residential and commercial cleaning serving Mesa and Arizona's East Valley.",
+            areaServed: serviceAreas.map((city) => ({
+              "@type": "City",
+              name: city,
+              containedInPlace: { "@type": "State", name: "Arizona" },
+            })),
+            sameAs: [
+              "https://www.instagram.com/tccleaningaz/",
+              "https://www.tiktok.com/@crisrra_condado",
+              "https://www.facebook.com/people/TC-Cleaning-Services-Az-LLC/61552028981970/",
+            ],
+            hasOfferCatalog: {
+              "@type": "OfferCatalog",
+              name: "Cleaning Services",
+              itemListElement: services.map((service) => ({
+                "@type": "Offer",
+                itemOffered: {
+                  "@type": "Service",
+                  name: service.title,
+                  description: service.description,
+                },
+              })),
+            },
+          }).replace(/</g, "\\u003c"),
+        }}
+      />
       {/* TOP BAR */}
       <div className="topbar">
         <div className="container topbar-inner">
