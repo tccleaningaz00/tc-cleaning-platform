@@ -15,6 +15,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   return [
     { url: siteUrl, changeFrequency: "weekly", priority: 1 },
+    { url: `${siteUrl}/services`, changeFrequency: "monthly", priority: 0.9 },
+    ...[
+      "residential-cleaning",
+      "recurring-cleaning",
+      "deep-cleaning",
+      "move-in-move-out-cleaning",
+      "commercial-cleaning",
+      "rental-turnover-cleaning",
+    ].map((slug) => ({
+      url: `${siteUrl}/services/${slug}`,
+      changeFrequency: "monthly" as const,
+      priority: 0.8,
+    })),
     { url: `${siteUrl}/our-work`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${siteUrl}/articles`, changeFrequency: "weekly", priority: 0.7 },
     ...articles.map((article) => ({

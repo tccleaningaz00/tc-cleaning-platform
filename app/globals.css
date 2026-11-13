@@ -512,6 +512,30 @@ img {
   color: var(--green);
 }
 
+.service-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.service-card-actions .service-link {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.service-quote-link {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.service-quote-link:hover {
+  color: var(--blue);
+}
+
 /* ABOUT */
 
 .owner-section {

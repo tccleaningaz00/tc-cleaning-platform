@@ -59,6 +59,38 @@
   font-size: 23px;
 }
 
+.profileCard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 790px;
+  margin: -16px auto 34px;
+  padding: 18px 20px;
+  text-align: left;
+  border: 1px solid #dce6ec;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(16, 43, 80, .05);
+}
+
+.profileIcon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #f1f5fa;
+  color: #4285f4;
+  font: 800 25px/1 Arial, sans-serif;
+}
+
+.profileCard div { flex: 1; }
+.profileCard strong { color: #102b50; font-size: 14px; }
+.profileCard p { margin-top: 3px; color: #687786; font-size: 12px; line-height: 1.6; }
+.profileCard>a { flex: 0 0 auto; padding: 10px 13px; border-radius: 5px; background: #8bcb12; color: #102b50; font-size: 12px; font-weight: 800; }
+.profileCard>a:hover { background: #a1e127; }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -181,6 +213,10 @@
     grid-template-columns: 1fr;
     gap: 15px;
   }
+
+  .profileCard { align-items: flex-start; flex-wrap: wrap; margin-bottom: 28px; }
+  .profileCard div { flex-basis: calc(100% - 60px); }
+  .profileCard>a { margin-left: 58px; }
 
   .card {
     padding: 23px;

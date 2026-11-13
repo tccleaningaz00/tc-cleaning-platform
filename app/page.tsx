@@ -4,65 +4,19 @@ import SocialShowcase from "./components/social-showcase";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { cleaningServices, serviceAreas } from "./lib/services";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-const services = [
-  {
-    number: "01",
-    title: "Residential Cleaning",
-    description:
-      "One-time or as-needed cleaning tailored to the size, condition, and priorities of your home. We’ll discuss the rooms and details you want addressed so the service scope is clear before scheduling.",
-    bestFor: "A home reset, a special occasion, or help with household upkeep.",
-  },
-  {
-    number: "02",
-    title: "Recurring Cleaning",
-    description:
-      "Choose weekly, biweekly, triweekly, or monthly visits for consistent home maintenance. We’ll agree on a schedule and recurring scope that fits your household and review any changes with you.",
-    bestFor: "Keeping a home on a regular, predictable cleaning rhythm.",
-  },
-  {
-    number: "03",
-    title: "Deep Cleaning",
-    description:
-      "A more thorough service for areas that need extra attention, including kitchens, bathrooms, living spaces, and other agreed areas. The final task list and estimate depend on the home’s condition and the work requested.",
-    bestFor: "A first visit, seasonal refresh, or a home that needs more than routine upkeep.",
-  },
-  {
-    number: "04",
-    title: "Move-In / Move-Out",
-    description:
-      "A one-time clean to help prepare a residence before move-in or after move-out. We’ll review the property’s condition, access, and requested checklist to confirm the scope before the appointment.",
-    bestFor: "Preparing a home for a new resident, lease handoff, or move.",
-  },
-  {
-    number: "05",
-    title: "Commercial Cleaning",
-    description:
-      "Cleaning for offices and professional spaces, with the service scope shaped around the location, areas in use, and preferred schedule. Contact us to discuss the space and request a tailored quote.",
-    bestFor: "Businesses looking for scheduled care for their work environment.",
-  },
-  {
-    number: "06",
-    title: "Rental & Airbnb",
-    description:
-      "Cleaning and turnover support for short-term and long-term rental properties. We’ll confirm access, timing, and the requested turnover checklist when preparing the quote.",
-    bestFor: "Between-stay turnovers or ongoing rental property maintenance.",
-  },
-];
-
-const serviceAreas = [
-  "Mesa",
-  "Gilbert",
-  "Chandler",
-  "Tempe",
-  "Queen Creek",
-  "Phoenix",
-  "Scottsdale",
-];
+const services = cleaningServices.map((service, index) => ({
+  number: String(index + 1).padStart(2, "0"),
+  title: service.name,
+  description: service.intro,
+  bestFor: service.bestFor,
+  slug: service.slug,
+}));
 
 export default function Home() {
   return (
@@ -111,7 +65,7 @@ export default function Home() {
         <div className="container topbar-inner">
           <span>Locally Owned. Proudly Serving the East Valley.</span>
           <div className="topbar-right">
-  <span>★★★★★ 5.0 Google Rating</span>
+  <span>★★★★★ 4.9 Google Rating</span>
   <a href="tel:4803108040">(480) 310-8040</a>
   <a
     href="/manager/login"
@@ -148,7 +102,7 @@ export default function Home() {
 
           <nav className="navigation">
             <a href="#home">Home</a>
-            <a href="#services">Services</a>
+            <Link href="/services">Services</Link>
             <a href="#about">About Us</a>
             <a href="/our-work">Our Work</a>
             <Link href="/articles">Cleaning Tips</Link>
@@ -195,7 +149,7 @@ export default function Home() {
             <div className="hero-rating">
               <span className="stars">★★★★★</span>
               <div>
-                <strong>5.0 Google Rating</strong>
+                <strong>4.9 Google Rating</strong>
                 <small>Trusted by our local customers</small>
               </div>
             </div>
@@ -241,8 +195,8 @@ export default function Home() {
           <div className="trust-item">
             <span className="trust-icon">★</span>
             <div>
-              <strong>5-Star Service</strong>
-              <small>Rated 5.0 on Google</small>
+              <strong>Highly Rated on Google</strong>
+              <small>4.9 average from customer reviews</small>
             </div>
           </div>
         </div>
@@ -271,9 +225,10 @@ export default function Home() {
                   <span>GOOD FIT FOR</span>
                   <p>{service.bestFor}</p>
                 </div>
-                <a href="#price-calculator" className="service-link">
-                  Get a Quote <span>→</span>
-                </a>
+                <div className="service-card-actions">
+                  <Link href={`/services/${service.slug}`} className="service-link">Learn more <span>→</span></Link>
+                  <a href="#price-calculator" className="service-quote-link">Get a quote</a>
+                </div>
               </article>
             ))}
           </div>
@@ -466,7 +421,7 @@ export default function Home() {
           <div className="footer-links">
             <strong>QUICK LINKS</strong>
             <a href="#home">Home</a>
-            <a href="#services">Our Services</a>
+            <Link href="/services">Our Services</Link>
             <a href="#about">About Us</a>
             <a href="#contact">Contact</a>
           </div>
