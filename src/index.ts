@@ -6,6 +6,7 @@ interface Env {
   API_SECRET: string;
   RESEND_API_KEY: string;
   RESEND_INVOICE_API_KEY?: string;
+  RESEND_WEBHOOK_SECRET?: string;
   GOOGLE_TOKEN_SECRET: string;
   GOOGLE_TOKEN_ENCRYPTION_KEY?: string;
   GOOGLE_CLIENT_ID: string;
@@ -16,6 +17,31 @@ function getGoogleEncryptionKey(env: Env) {
   // Keep the deployed GOOGLE_TOKEN_SECRET binding working while accepting the
   // more explicit name for future deployments.
   return env.GOOGLE_TOKEN_ENCRYPTION_KEY || env.GOOGLE_TOKEN_SECRET;
+}
+
+async function verifyResendWebhook(request: Request, body: string, secret: string) {
+  const id = request.headers.get("svix-id") || "";
+  const timestamp = request.headers.get("svix-timestamp") || "";
+  const signatures = request.headers.get("svix-signature") || "";
+  if (!id || !/^\d+$/.test(timestamp) || !signatures) return false;
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isSafeInteger(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > 300) return false;
+  const encodedSecret = secret.startsWith("whsec_") ? secret.slice(6) : "";
+  if (!encodedSecret) return false;
+  let keyBytes: Uint8Array;
+  try { keyBytes = Uint8Array.from(atob(encodedSecret), (char) => char.charCodeAt(0)); } catch { return false; }
+  const keyBuffer = new ArrayBuffer(keyBytes.byteLength);
+  new Uint8Array(keyBuffer).set(keyBytes);
+  const key = await crypto.subtle.importKey("raw", keyBuffer, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${id}.${timestamp}.${body}`));
+  const expected = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  const constantTimeEqual = (left: string, right: string) => {
+    if (left.length !== right.length) return false;
+    let mismatch = 0;
+    for (let index = 0; index < left.length; index++) mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+    return mismatch === 0;
+  };
+  return signatures.split(" ").some((part) => part.startsWith("v1,") && constantTimeEqual(part.slice(3), expected));
 }
 
 interface QuotePayload {
@@ -155,6 +181,10 @@ interface InvoiceRow {
   has_view_link?: number | boolean;
   first_viewed_at?: string | null;
   last_viewed_at?: string | null;
+  email_tracking_count?: number;
+  email_open_count?: number;
+  email_first_opened_at?: string | null;
+  email_last_opened_at?: string | null;
   venmo_url?: string; zelle_recipient?: string;
   status: string; subtotal_cents: number; tax_cents: number; deposit_paid_cents: number; total_cents: number; sent_at: string | null;
   receipt_status?: "not_sent" | "sending" | "sent" | "failed"; receipt_sent_at?: string | null;
@@ -175,6 +205,7 @@ interface ManagerEstimateRow {
   approval_token: string | null; chase_payment_url: string; venmo_url: string; zelle_recipient: string;
   valid_until: string; sent_at: string | null; approved_at: string | null; deposit_paid_at: string | null;
   view_count?: number; first_viewed_at?: string | null; last_viewed_at?: string | null;
+  email_tracking_count?: number; email_open_count?: number; email_first_opened_at?: string | null; email_last_opened_at?: string | null;
   created_at: string; items?: InvoiceItemRow[];
 }
 
@@ -515,6 +546,7 @@ const worker = {
     const galleryImageMatch = path.match(/^\/gallery\/([0-9a-f-]{36})\/image$/i);
     const managerGalleryPhotoMatch = path.match(/^\/manager-gallery\/([0-9a-f-]{36})$/i);
     const publicArticleMatch = path.match(/^\/articles\/([^/]+)$/);
+    const resendWebhookRoute = path === "/webhooks/resend";
     const managerArticleMatch = path.match(/^\/manager-articles\/([^/]+)$/);
     const managerCustomerMatch = path.match(/^\/manager-customers\/([^/]+)$/);
     const managerInvoiceSendMatch = path.match(/^\/manager-invoices\/([^/]+)\/send$/);
@@ -539,17 +571,54 @@ const worker = {
     const managerLedgerRoute = path === "/manager-ledger" || Boolean(managerLedgerEntryMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
+    if (!resendWebhookRoute && !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
     const authorization = request.headers.get("Authorization");
 
     if (
-      !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute &&
+      !resendWebhookRoute && !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute &&
       (!env.API_SECRET || authorization !== `Bearer ${env.API_SECRET}`)
     ) {
       return json({ error: "Unauthorized" }, 401);
+    }
+
+    if (resendWebhookRoute) {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!env.RESEND_WEBHOOK_SECRET) return json({ error: "Webhook verification is not configured." }, 503);
+      const contentLength = Number(request.headers.get("Content-Length") || 0);
+      if (contentLength > 64_000) return json({ error: "Webhook payload is too large." }, 413);
+      const rawBody = await request.text();
+      if (rawBody.length > 64_000) return json({ error: "Webhook payload is too large." }, 413);
+      try {
+        if (!await verifyResendWebhook(request, rawBody, env.RESEND_WEBHOOK_SECRET)) return json({ error: "Invalid webhook signature." }, 401);
+        const event = JSON.parse(rawBody) as { type?: unknown; created_at?: unknown; data?: { email_id?: unknown; created_at?: unknown } };
+        if (event.type !== "email.opened") return json({ success: true, ignored: true });
+        const emailId = typeof event.data?.email_id === "string" ? event.data.email_id : "";
+        if (!emailId || emailId.length > 200) return json({ error: "Invalid email event." }, 400);
+        const eventId = request.headers.get("svix-id") || "";
+        const rawOpenedAt = typeof event.created_at === "string" ? event.created_at : event.data?.created_at;
+        const parsedOpenedAt = typeof rawOpenedAt === "string" ? new Date(rawOpenedAt) : new Date();
+        const openedAt = Number.isNaN(parsedOpenedAt.valueOf()) ? new Date().toISOString() : parsedOpenedAt.toISOString();
+        const insert = await env.DB.prepare(`
+          INSERT OR IGNORE INTO document_email_open_events (event_id, email_id, opened_at)
+          SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM document_email_messages WHERE email_id = ?)
+        `).bind(eventId, emailId, openedAt, emailId).run();
+        if (insert.meta.changes) {
+          await env.DB.prepare(`
+            UPDATE document_email_messages
+            SET open_count = (SELECT COUNT(*) FROM document_email_open_events WHERE email_id = ?),
+                first_opened_at = (SELECT MIN(opened_at) FROM document_email_open_events WHERE email_id = ?),
+                last_opened_at = (SELECT MAX(opened_at) FROM document_email_open_events WHERE email_id = ?)
+            WHERE email_id = ?
+          `).bind(emailId, emailId, emailId, emailId).run();
+        }
+        return json({ success: true });
+      } catch (error) {
+        console.error("Resend webhook could not be processed.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "Webhook could not be processed." }, 500);
+      }
     }
 
     if (path === "/gallery") {
@@ -970,7 +1039,16 @@ const worker = {
     if (managerEstimateRoute) {
       if (path === "/manager-estimates" && request.method === "GET") {
         try {
-          const estimates = await env.DB.prepare(`SELECT e.*, (SELECT COUNT(*) FROM manager_estimate_items i WHERE i.estimate_id = e.id) AS item_count, (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS view_count, (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS first_viewed_at, (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS last_viewed_at FROM manager_estimates e ORDER BY e.created_at DESC LIMIT 200`).all<ManagerEstimateRow>();
+          const estimates = await env.DB.prepare(`SELECT e.*,
+            (SELECT COUNT(*) FROM manager_estimate_items i WHERE i.estimate_id = e.id) AS item_count,
+            (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS view_count,
+            (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS first_viewed_at,
+            (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'estimate' AND v.document_id = e.id) AS last_viewed_at,
+            (SELECT COUNT(*) FROM document_email_messages em WHERE em.document_type = 'estimate' AND em.document_id = e.id) AS email_tracking_count,
+            (SELECT COALESCE(SUM(em.open_count), 0) FROM document_email_messages em WHERE em.document_type = 'estimate' AND em.document_id = e.id) AS email_open_count,
+            (SELECT MIN(em.first_opened_at) FROM document_email_messages em WHERE em.document_type = 'estimate' AND em.document_id = e.id AND em.first_opened_at IS NOT NULL) AS email_first_opened_at,
+            (SELECT MAX(em.last_opened_at) FROM document_email_messages em WHERE em.document_type = 'estimate' AND em.document_id = e.id) AS email_last_opened_at
+            FROM manager_estimates e ORDER BY e.created_at DESC LIMIT 200`).all<ManagerEstimateRow>();
           const quotes = await env.DB.prepare(`
             SELECT e.id AS quote_id, e.customer_id, e.property_id, e.service_type, e.estimate_notes, e.created_at,
               c.first_name, c.last_name, c.email, c.phone,
@@ -1047,6 +1125,12 @@ const worker = {
             console.error("Estimate email provider rejected the message.", { providerStatus: emailResponse.status });
             return json({ error: emailResponse.status === 403 ? "The quotes sender is not authorized by the email provider. The estimate draft remains saved." : "The estimate email could not be accepted. Confirm quotes@tccleaningaz.com sender verification; the draft remains saved." }, 502);
           }
+          const providerMessage = await emailResponse.json().catch(() => null) as { id?: unknown } | null;
+          if (typeof providerMessage?.id === "string" && providerMessage.id.length <= 200) {
+            await env.DB.prepare("INSERT OR IGNORE INTO document_email_messages (email_id, document_type, document_id) VALUES (?, 'estimate', ?)").bind(providerMessage.id, id).run().catch((error) => {
+              console.error("Estimate email activity mapping could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+            });
+          }
           await env.DB.prepare("UPDATE manager_estimates SET status = 'sent', sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
           return json({ success: true });
         } catch (error) {
@@ -1079,7 +1163,11 @@ const worker = {
               (i.public_view_token IS NOT NULL) AS has_view_link,
               (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS view_count,
               (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS first_viewed_at,
-              (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS last_viewed_at
+              (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS last_viewed_at,
+              (SELECT COUNT(*) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id) AS email_tracking_count,
+              (SELECT COALESCE(SUM(em.open_count), 0) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id) AS email_open_count,
+              (SELECT MIN(em.first_opened_at) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id AND em.first_opened_at IS NOT NULL) AS email_first_opened_at,
+              (SELECT MAX(em.last_opened_at) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id) AS email_last_opened_at
             FROM invoices i LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
             GROUP BY i.id ORDER BY i.created_at DESC
           `).all<InvoiceRow>();
@@ -1094,7 +1182,15 @@ const worker = {
         const id = managerInvoiceMatch[1];
         if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invoice not found." }, 404);
         try {
-          const invoice = await env.DB.prepare(`SELECT i.*, (i.public_view_token IS NOT NULL) AS has_view_link, (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS view_count, (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS first_viewed_at, (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS last_viewed_at FROM invoices i WHERE i.id = ?`).bind(id).first<InvoiceRow>();
+          const invoice = await env.DB.prepare(`SELECT i.*, (i.public_view_token IS NOT NULL) AS has_view_link,
+            (SELECT COUNT(*) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS view_count,
+            (SELECT MIN(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS first_viewed_at,
+            (SELECT MAX(v.first_viewed_at) FROM document_views v WHERE v.document_type = 'invoice' AND v.document_id = i.id) AS last_viewed_at,
+            (SELECT COUNT(*) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id) AS email_tracking_count,
+            (SELECT COALESCE(SUM(em.open_count), 0) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id) AS email_open_count,
+            (SELECT MIN(em.first_opened_at) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id AND em.first_opened_at IS NOT NULL) AS email_first_opened_at,
+            (SELECT MAX(em.last_opened_at) FROM document_email_messages em WHERE em.document_type = 'invoice' AND em.document_id = i.id) AS email_last_opened_at
+            FROM invoices i WHERE i.id = ?`).bind(id).first<InvoiceRow>();
           if (!invoice) return json({ error: "Invoice not found." }, 404);
           const items = await env.DB.prepare("SELECT id, description, quantity, unit_price_cents, line_total_cents FROM invoice_items WHERE invoice_id = ? ORDER BY rowid").bind(id).all<InvoiceItemRow>();
           return json({ success: true, invoice: { ...invoiceForManager(invoice), items: items.results || [] } });
@@ -1188,6 +1284,12 @@ const worker = {
             await env.DB.prepare("UPDATE invoices SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
             console.error("Invoice email provider rejected the message.", { providerStatus });
             return json({ error: providerStatus === 403 ? "The Resend key for invoice sending is not authorized for tccleaningaz.com. The draft is still saved." : providerStatus === 422 ? "Resend did not accept invoices@tccleaningaz.com. Check the sender verification and invoice details; the draft is still saved." : providerStatus === 401 ? "The invoice email key was rejected by Resend. The draft is still saved." : "The invoice email could not be sent. The draft is still saved." }, 502);
+          }
+          const providerMessage = await emailResponse.json().catch(() => null) as { id?: unknown } | null;
+          if (typeof providerMessage?.id === "string" && providerMessage.id.length <= 200) {
+            await env.DB.prepare("INSERT OR IGNORE INTO document_email_messages (email_id, document_type, document_id) VALUES (?, 'invoice', ?)").bind(providerMessage.id, id).run().catch((error) => {
+              console.error("Invoice email activity mapping could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+            });
           }
           await env.DB.prepare("UPDATE invoices SET status = 'sent', sent_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'sending'").bind(id).run();
           return json({ success: true });
