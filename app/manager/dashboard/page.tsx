@@ -190,12 +190,14 @@ export default async function ManagerDashboard({
                 <h3 style={{ marginTop: 0 }}>{title}</h3>
                 <p style={{ color: "#687786", lineHeight: 1.6 }}>{description}</p>
                 <span style={{ color: "#16834a", fontSize: "13px", fontWeight: 700 }}>
-                  {title === "Customers & Properties" ? "Open client directory" : title === "Cleaning Articles" ? "Write and publish articles" : title === "Our Work Gallery" ? "Manage gallery photos" : title === "Estimates & Pricing" ? "Create and send estimates" : "Coming soon"}
+                  {title === "Customers & Properties" ? "Open client directory" : title === "Cleaning Articles" ? "Write and publish articles" : title === "Our Work Gallery" ? "Manage gallery photos" : title === "Estimates & Pricing" ? "Create and send estimates" : title === "Employees & Payroll" ? "Create weekly timecards" : "Coming soon"}
                 </span>
               </article>
             );
 
-            return title === "Expenses & Payments" || title === "Business Reports" ? (
+            return title === "Employees & Payroll" ? (
+              <Link key={title} href="/manager/payroll" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
+            ) : title === "Expenses & Payments" || title === "Business Reports" ? (
               <Link key={title} href="/manager/finances" style={{ color: "inherit", textDecoration: "none" }}>{card}</Link>
             ) : title === "Customers & Properties" ? (
               <Link key={title} href="/manager/customers" style={{ color: "inherit", textDecoration: "none" }}>

@@ -569,9 +569,11 @@ const worker = {
     const publicDocumentViewRoute = Boolean(publicDocumentViewMatch);
     const managerLedgerEntryMatch = path.match(/^\/manager-ledger\/([^/]+)$/);
     const managerLedgerRoute = path === "/manager-ledger" || Boolean(managerLedgerEntryMatch);
+    const managerTimecardMatch = path.match(/^\/manager-timecards\/([0-9a-f-]{36})$/i);
+    const managerTimecardRoute = path === "/manager-timecards" || Boolean(managerTimecardMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
-    if (!resendWebhookRoute && !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !existingRoute) {
+    if (!resendWebhookRoute && !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !managerTimecardRoute && !existingRoute) {
       return json({ error: "Not found" }, 404);
     }
 
@@ -1401,6 +1403,62 @@ const worker = {
           errorName: error instanceof Error ? error.name : "UnknownError",
         });
         return json({ error: "Unable to load the customer directory." }, 500);
+      }
+    }
+
+
+    if (managerTimecardRoute) {
+      if (managerTimecardMatch) {
+        const id = managerTimecardMatch[1];
+        if (request.method !== "DELETE") return json({ error: "Method not allowed." }, 405);
+        try {
+          const result = await env.DB.prepare("DELETE FROM manager_timecards WHERE id = ?").bind(id).run();
+          if (!result.meta.changes) return json({ error: "Timecard not found." }, 404);
+          return json({ success: true, deleted: true });
+        } catch (error) {
+          console.error("Manager timecard could not be deleted.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "The saved timecard could not be deleted." }, 500);
+        }
+      }
+
+      if (request.method === "GET") {
+        try {
+          const result = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at FROM manager_timecards ORDER BY week_start_date DESC, created_at DESC").all<Record<string, unknown>>();
+          return json({ success: true, timecards: result.results || [] });
+        } catch (error) {
+          console.error("Manager timecards could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Saved timecards could not be loaded." }, 500);
+        }
+      }
+
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      try {
+        const body: unknown = await request.json();
+        if (!isRecord(body)) return json({ error: "Check the employee, week, rate, and weekday hours." }, 400);
+        const employeeName = body.employeeName;
+        const hourlyRateCents = body.hourlyRateCents;
+        const weekStartDate = body.weekStartDate;
+        const weekdayMinutes = body.weekdayMinutes;
+        const validWeek = typeof weekStartDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(weekStartDate)
+          && !Number.isNaN(new Date(weekStartDate + "T12:00:00Z").valueOf())
+          && new Date(weekStartDate + "T12:00:00Z").toISOString().slice(0, 10) === weekStartDate
+          && new Date(weekStartDate + "T12:00:00Z").getUTCDay() === 1;
+        const validMinutes = Array.isArray(weekdayMinutes) && weekdayMinutes.length === 5
+          && weekdayMinutes.every((minutes) => typeof minutes === "number" && Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440)
+          && weekdayMinutes.reduce((sum: number, minutes) => sum + minutes, 0) > 0;
+        if (typeof employeeName !== "string" || !employeeName.trim() || employeeName.trim().length > 160
+          || typeof hourlyRateCents !== "number" || !Number.isSafeInteger(hourlyRateCents) || hourlyRateCents <= 0 || hourlyRateCents > 100_000
+          || !validWeek || !validMinutes) {
+          return json({ error: "Enter a valid employee name, Monday week start, hourly rate, and up to 24 hours per weekday." }, 400);
+        }
+        const minuteValues = weekdayMinutes as number[];
+        const id = crypto.randomUUID();
+        await env.DB.prepare("INSERT INTO manager_timecards (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, employeeName.trim(), hourlyRateCents, weekStartDate, ...minuteValues).run();
+        const timecard = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at FROM manager_timecards WHERE id = ?").bind(id).first<Record<string, unknown>>();
+        return json({ success: true, timecard }, 201);
+      } catch (error) {
+        console.error("Manager timecard could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+        return json({ error: "The timecard could not be saved." }, 500);
       }
     }
 
