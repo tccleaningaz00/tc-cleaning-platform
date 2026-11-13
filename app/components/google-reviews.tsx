@@ -53,11 +53,11 @@ export default function GoogleReviews() {
         <div className={styles.profileCard}>
           <span className={styles.profileIcon} aria-hidden="true">G</span>
           <div>
-            <strong>Visit TC Cleaning on Google</strong>
-            <p>See the latest customer reviews, business photos, and profile updates.</p>
+            <strong>TC Cleaning Services AZ LLC</strong>
+            <p>House cleaning service · Mesa, Arizona · 4.9 stars from 38 Google reviews</p>
           </div>
-          <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer" aria-label="Open the TC Cleaning Google Business Profile">
-            View profile <span aria-hidden="true">↗</span>
+          <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer" aria-label="View TC Cleaning's Google photos and reviews">
+            Photos & reviews <span aria-hidden="true">↗</span>
           </a>
         </div>
 
@@ -81,25 +81,6 @@ export default function GoogleReviews() {
               </span>
             </article>
           ))}
-        </div>
-
-        <div className={styles.mapCard}>
-          <div className={styles.mapHeading}>
-            <span className={styles.eyebrow}>OUR GOOGLE BUSINESS PROFILE</span>
-            <h3>Find TC Cleaning on Google.</h3>
-            <p>Explore our profile, photos, reviews, and location on Google Maps.</p>
-          </div>
-          <iframe
-            className={styles.mapFrame}
-            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3329.9273836437515!2d-111.7908659!3d33.42513749999999!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x2c65d9dc3127852b%3A0x11cf1651d4a77648!2sTC%20Cleaning%20Services%20AZ%20LLC!5e0!3m2!1sen!2sus!4v1794549512107!5m2!1sen!2sus"
-            width="600"
-            height="450"
-            style={{ border: 0 }}
-            allowFullScreen
-            loading="lazy"
-            referrerPolicy="strict-origin-when-cross-origin"
-            title="TC Cleaning Services AZ LLC on Google Maps"
-          />
         </div>
 
         <div className={styles.footer}>
