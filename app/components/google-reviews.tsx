@@ -83,6 +83,25 @@ export default function GoogleReviews() {
           ))}
         </div>
 
+        <div className={styles.mapCard}>
+          <div className={styles.mapHeading}>
+            <span className={styles.eyebrow}>OUR GOOGLE BUSINESS PROFILE</span>
+            <h3>Find TC Cleaning on Google.</h3>
+            <p>Explore our profile, photos, reviews, and location on Google Maps.</p>
+          </div>
+          <iframe
+            className={styles.mapFrame}
+            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3329.9273836437515!2d-111.7908659!3d33.42513749999999!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x2c65d9dc3127852b%3A0x11cf1651d4a77648!2sTC%20Cleaning%20Services%20AZ%20LLC!5e0!3m2!1sen!2sus!4v1794549512107!5m2!1sen!2sus"
+            width="600"
+            height="450"
+            style={{ border: 0 }}
+            allowFullScreen
+            loading="lazy"
+            referrerPolicy="strict-origin-when-cross-origin"
+            title="TC Cleaning Services AZ LLC on Google Maps"
+          />
+        </div>
+
         <div className={styles.footer}>
           <p>Want to learn more about our business?</p>
           <a
