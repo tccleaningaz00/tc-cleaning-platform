@@ -34,7 +34,13 @@ const labelStyle = { display: "grid", gap: "6px", color: "#465766", fontSize: "1
 const buttonStyle = { background: "#16834a", color: "white", border: 0, padding: "11px 16px", borderRadius: "7px", fontWeight: 700 as const, cursor: "pointer" };
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const phoenixDate = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-const arizonaDateTime = (value?: string | null) => value ? new Intl.DateTimeFormat("en-US", { timeZone: "America/Phoenix", dateStyle: "medium", timeStyle: "short" }).format(new Date(`${value.replace(" ", "T")}Z`)) : "";
+const arizonaDateTime = (value?: string | null) => {
+  if (!value) return "";
+  const normalized = value.replace(" ", "T");
+  const timestamp = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(timestamp);
+  return Number.isNaN(date.valueOf()) ? "" : new Intl.DateTimeFormat("en-US", { timeZone: "America/Phoenix", dateStyle: "medium", timeStyle: "short" }).format(date);
+};
 
 function invoiceEmailActivity(invoice: Invoice) {
   if (invoice.email_open_count) return `Email open signals: ${invoice.email_open_count}${invoice.email_first_opened_at ? ` · First ${arizonaDateTime(invoice.email_first_opened_at)}` : ""}${invoice.email_last_opened_at && invoice.email_last_opened_at !== invoice.email_first_opened_at ? ` · Latest ${arizonaDateTime(invoice.email_last_opened_at)}` : ""}`;

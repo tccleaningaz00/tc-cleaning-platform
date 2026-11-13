@@ -10,7 +10,13 @@ const field: React.CSSProperties = { display: "block", width: "100%", boxSizing:
 const label: React.CSSProperties = { display: "block", color: "#354858", fontWeight: 700, fontSize: 14 };
 const btn: React.CSSProperties = { border: 0, borderRadius: 7, padding: "11px 16px", background: "#16834a", color: "white", fontWeight: 700, cursor: "pointer" };
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
-const arizonaDateTime = (value?: string | null) => value ? new Intl.DateTimeFormat("en-US", { timeZone: "America/Phoenix", dateStyle: "medium", timeStyle: "short" }).format(new Date(`${value.replace(" ", "T")}Z`)) : "";
+const arizonaDateTime = (value?: string | null) => {
+  if (!value) return "";
+  const normalized = value.replace(" ", "T");
+  const timestamp = /(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized) ? normalized : `${normalized}Z`;
+  const date = new Date(timestamp);
+  return Number.isNaN(date.valueOf()) ? "" : new Intl.DateTimeFormat("en-US", { timeZone: "America/Phoenix", dateStyle: "medium", timeStyle: "short" }).format(date);
+};
 const venmoDefault = "https://venmo.com/code?user_id=3911407825323357177&created=1794261030";
 const zelleDefault = "(480) 310-8040";
 
