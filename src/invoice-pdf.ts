@@ -3,7 +3,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage } from "pd
 type InvoicePdfData = {
   invoice_number: string; client_name: string; client_email: string; client_phone?: string;
   billing_address: string; issue_date: string; due_date: string; notes: string;
-  subtotal_cents: number; tax_cents: number; total_cents: number;
+  subtotal_cents: number; tax_cents: number; deposit_paid_cents: number; total_cents: number;
   payment_url?: string; venmo_url?: string; zelle_recipient?: string;
 };
 type InvoicePdfItem = { description: string; quantity: number; unit_price_cents: number; line_total_cents: number };
@@ -70,7 +70,10 @@ export async function createInvoicePdf(invoice: InvoicePdfData, items: InvoicePd
     }
     page.drawText(first ? "INVOICE" : "INVOICE - CONTINUED", { x: 370, y: 742, size: 19, font: bold, color: rgb(1, 1, 1) });
     page.drawText(cleanText(invoice.invoice_number), { x: 370, y: 720, size: 10, font: regular, color: green });
-    if (first) page.drawText(currency(invoice.total_cents), { x: 370, y: 686, size: 25, font: bold, color: rgb(1, 1, 1) });
+  if (first) {
+    page.drawText("BALANCE DUE", { x: 370, y: 700, size: 8, font: bold, color: green });
+    page.drawText(currency(invoice.total_cents), { x: 370, y: 678, size: 25, font: bold, color: rgb(1, 1, 1) });
+  }
   };
   const drawWrapped = (text: string, x: number, startY: number, maxWidth: number, size = 10, font = regular, color = ink, lineHeight = 14) => {
     const lines = wrap(text, font, size, maxWidth);
@@ -123,8 +126,9 @@ export async function createInvoicePdf(invoice: InvoicePdfData, items: InvoicePd
   page.drawText("Subtotal", { x: totalsX, y, size: 10, font: regular, color: muted });
   page.drawText(currency(invoice.subtotal_cents), { x: 500, y, size: 10, font: regular, color: ink }); y -= 19;
   if (invoice.tax_cents) { page.drawText("Tax", { x: totalsX, y, size: 10, font: regular, color: muted }); page.drawText(currency(invoice.tax_cents), { x: 500, y, size: 10, font: regular, color: ink }); y -= 19; }
+  if (invoice.deposit_paid_cents) { page.drawText("Deposit paid", { x: totalsX, y, size: 10, font: regular, color: muted }); page.drawText(`-${currency(invoice.deposit_paid_cents)}`, { x: 500, y, size: 10, font: regular, color: ink }); y -= 19; }
   page.drawLine({ start: { x: totalsX, y: y + 8 }, end: { x: 570, y: y + 8 }, thickness: 1, color: border });
-  page.drawText("TOTAL DUE", { x: totalsX, y: y - 12, size: 12, font: bold, color: ink });
+  page.drawText("BALANCE DUE", { x: totalsX, y: y - 12, size: 12, font: bold, color: ink });
   page.drawText(currency(invoice.total_cents), { x: 500, y: y - 12, size: 12, font: bold, color: ink }); y -= 38;
 
   const paymentLines = [

@@ -49,6 +49,7 @@ interface InvoiceInput {
   venmoUrl: string;
   zelleRecipient: string;
   taxPercent: number;
+  depositPaid?: number;
   items: InvoiceLineInput[];
 }
 
@@ -89,13 +90,14 @@ function parseInvoiceInput(value: unknown): InvoiceInput | null {
   if (rawZelleRecipient !== undefined && (typeof rawZelleRecipient !== "string" || rawZelleRecipient.trim().length > 80)) return null;
   const zelleRecipient = typeof rawZelleRecipient === "string" ? rawZelleRecipient.trim() : "";
   const taxPercent = value.taxPercent;
-  if (clientName === null || clientEmail === null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail) || clientPhone === null || billingAddress === null || issueDate === null || dueDate === null || notes === null || !/^\d{4}-\d{2}-\d{2}$/.test(issueDate) || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || typeof taxPercent !== "number" || !Number.isFinite(taxPercent) || taxPercent < 0 || taxPercent > 20) return null;
+  const depositPaid = value.depositPaid === undefined ? 0 : value.depositPaid;
+  if (clientName === null || clientEmail === null || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail) || clientPhone === null || billingAddress === null || issueDate === null || dueDate === null || notes === null || !/^\d{4}-\d{2}-\d{2}$/.test(issueDate) || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || typeof taxPercent !== "number" || !Number.isFinite(taxPercent) || taxPercent < 0 || taxPercent > 20 || typeof depositPaid !== "number" || !Number.isFinite(depositPaid) || depositPaid < 0 || depositPaid > 1000000000) return null;
   const items: InvoiceLineInput[] = [];
   for (const raw of value.items) {
     if (!isRecord(raw) || typeof raw.description !== "string" || !raw.description.trim() || raw.description.length > 240 || typeof raw.quantity !== "number" || !Number.isFinite(raw.quantity) || raw.quantity <= 0 || raw.quantity > 10000 || typeof raw.unitPrice !== "number" || !Number.isFinite(raw.unitPrice) || raw.unitPrice < 0 || raw.unitPrice > 1000000) return null;
     items.push({ description: raw.description.trim(), quantity: raw.quantity, unitPrice: raw.unitPrice });
   }
-  return { customerId, clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, paymentUrl, venmoUrl, zelleRecipient, taxPercent, items };
+  return { customerId, clientName, clientEmail, clientPhone, billingAddress, issueDate, dueDate, notes, paymentUrl, venmoUrl, zelleRecipient, taxPercent, depositPaid, items };
 }
 
 function money(cents: number) {
@@ -136,7 +138,7 @@ function invoiceEmailHtml(invoice: InvoiceRow, items: InvoiceItemRow[], publicUr
   const paymentButton = invoice.payment_url ? `<div style="margin:28px 0;text-align:center"><a href="${escapeHtml(invoice.payment_url)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#18834a;color:#fff;text-decoration:none;font-weight:bold">Pay by card</a><p style="margin:10px 0 0;color:#687786;font-size:13px">Secure checkout provided by Chase.</p></div>` : "";
   const venmoButton = invoice.venmo_url ? `<div style="margin:16px 0;text-align:center"><a href="${escapeHtml(invoice.venmo_url)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#008CFF;color:#fff;text-decoration:none;font-weight:bold">Pay with Venmo</a><p style="margin:10px 0 0;color:#687786;font-size:13px">Enter the invoice total of ${money(invoice.total_cents)} in Venmo.</p></div>` : "";
   const zelleInstructions = invoice.zelle_recipient ? `<div style="margin:16px 0;padding:18px;border:1px solid #dce3e8;border-radius:8px;background:#f8fafb;text-align:center"><strong style="color:#5b2c83">Pay with Zelle</strong><p style="margin:8px 0;color:#354858">In your banking app, choose Zelle and send <strong>${money(invoice.total_cents)}</strong> to:</p><p style="margin:0;font-size:19px;font-weight:bold;color:#172b3d">${escapeHtml(invoice.zelle_recipient)}</p><p style="margin:8px 0 0;color:#687786;font-size:13px">Please include invoice ${escapeHtml(invoice.invoice_number)} in the payment note.</p></div>` : "";
-  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p style="text-align:center;margin:24px 0"><a href="${escapeHtml(publicUrl)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#16834a;color:#fff;text-decoration:none;font-weight:bold">View invoice online</a></p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Total <strong>${money(invoice.total_cents)}</strong></p></div>${paymentButton}${venmoButton}${zelleInstructions}${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
+  return `<!doctype html><html><body style="margin:0;background:#f3f6f8;font-family:Arial,sans-serif;color:#172b3d"><div style="max-width:680px;margin:24px auto;background:#fff;border:1px solid #e3e9ed;border-radius:12px;overflow:hidden"><div style="padding:24px 28px;background:#101923;color:#fff"><img src="https://www.tccleaningaz.com/images/tc-cleaning-logo.png" alt="TC Cleaning Services" width="150" style="display:block;background:#fff;border-radius:6px;padding:6px"><p style="color:#8bd34a;font-weight:bold;margin:18px 0 4px">INVOICE ${escapeHtml(invoice.invoice_number)}</p><p style="margin:0 0 4px;color:#d5e0e8;font-size:12px">BALANCE DUE</p><h1 style="margin:0;font-size:26px">${money(invoice.total_cents)}</h1></div><div style="padding:28px"><p>Hello ${escapeHtml(invoice.client_name)},</p><p>Please find your invoice details below. Payment is due by <strong>${escapeHtml(invoice.due_date)}</strong>.</p><p style="text-align:center;margin:24px 0"><a href="${escapeHtml(publicUrl)}" style="display:inline-block;padding:14px 24px;border-radius:8px;background:#16834a;color:#fff;text-decoration:none;font-weight:bold">View invoice online</a></p><p><strong>Bill to:</strong><br>${escapeHtml(invoice.client_name)}<br>${escapeHtml(invoice.client_email)}${address ? `<br>${address}` : ""}</p><table style="width:100%;border-collapse:collapse;margin-top:22px"><thead><tr style="text-align:left;background:#f3f6f8"><th style="padding:10px">Description</th><th style="padding:10px;text-align:center">Qty</th><th style="padding:10px;text-align:right">Rate</th><th style="padding:10px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div style="margin:18px 0 0 auto;max-width:260px"><p style="display:flex;justify-content:space-between">Subtotal <strong>${money(invoice.subtotal_cents)}</strong></p>${invoice.tax_cents ? `<p style="display:flex;justify-content:space-between">Tax <strong>${money(invoice.tax_cents)}</strong></p>` : ""}${invoice.deposit_paid_cents ? `<p style="display:flex;justify-content:space-between">Deposit paid <strong>−${money(invoice.deposit_paid_cents)}</strong></p>` : ""}<p style="display:flex;justify-content:space-between;font-size:20px;border-top:1px solid #dce3e8;padding-top:12px">Balance due <strong>${money(invoice.total_cents)}</strong></p></div>${paymentButton}${venmoButton}${zelleInstructions}${notes}<p style="margin-top:28px;color:#52616d">Thank you for choosing TC Cleaning Services AZ LLC.</p></div><div style="padding:16px 28px;background:#f3f6f8;color:#687786;font-size:13px">TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com</div></div></body></html>`;
 }
 
 function invoiceReceiptHtml(invoice: InvoiceRow, items: InvoiceItemRow[], paidAt: string) {
@@ -154,7 +156,7 @@ interface InvoiceRow {
   first_viewed_at?: string | null;
   last_viewed_at?: string | null;
   venmo_url?: string; zelle_recipient?: string;
-  status: string; subtotal_cents: number; tax_cents: number; total_cents: number; sent_at: string | null;
+  status: string; subtotal_cents: number; tax_cents: number; deposit_paid_cents: number; total_cents: number; sent_at: string | null;
   receipt_status?: "not_sent" | "sending" | "sent" | "failed"; receipt_sent_at?: string | null;
   created_at: string; items?: InvoiceItemRow[];
 }
@@ -714,7 +716,7 @@ const worker = {
         return json({ success: true, invoice: {
           invoiceNumber: invoice.invoice_number, clientName: invoice.client_name, billingAddress: invoice.billing_address,
           issueDate: invoice.issue_date, dueDate: invoice.due_date, notes: invoice.notes, status: invoice.status,
-          subtotalCents: invoice.subtotal_cents, taxCents: invoice.tax_cents, totalCents: invoice.total_cents,
+          subtotalCents: invoice.subtotal_cents, taxCents: invoice.tax_cents, depositPaidCents: invoice.deposit_paid_cents, totalCents: invoice.total_cents,
           paymentUrl: invoice.payment_url || "", venmoUrl: invoice.venmo_url || "", zelleRecipient: invoice.zelle_recipient || "",
           items: items.results || [],
         } });
@@ -1118,7 +1120,10 @@ const worker = {
         if (itemRows.some((item) => !Number.isSafeInteger(item.lineTotalCents))) return json({ error: "An invoice line amount is too large." }, 400);
         const subtotal = itemRows.reduce((sum, item) => sum + item.lineTotalCents, 0);
         const tax = Math.round(subtotal * input.taxPercent / 100);
-        const total = subtotal + tax;
+        const depositPaid = Math.round((input.depositPaid || 0) * 100);
+        const grossTotal = subtotal + tax;
+        if (!Number.isSafeInteger(depositPaid) || depositPaid > grossTotal) return json({ error: "The deposit credit cannot be greater than the invoice subtotal and tax." }, 400);
+        const total = grossTotal - depositPaid;
         if (!Number.isSafeInteger(total)) return json({ error: "Invoice total is too large." }, 400);
         try {
           if (input.customerId) {
@@ -1126,9 +1131,9 @@ const worker = {
             if (!customer) return json({ error: "Selected client was not found." }, 404);
           }
           const statements = [env.DB.prepare(`
-            INSERT INTO invoices (id, invoice_number, customer_id, client_name, client_email, client_phone, billing_address, issue_date, due_date, notes, subtotal_cents, tax_cents, total_cents, payment_url, venmo_url, zelle_recipient)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).bind(id, invoiceNumber, input.customerId || null, input.clientName, input.clientEmail, input.clientPhone, input.billingAddress, input.issueDate, input.dueDate, input.notes, subtotal, tax, total, input.paymentUrl, input.venmoUrl, input.zelleRecipient),
+            INSERT INTO invoices (id, invoice_number, customer_id, client_name, client_email, client_phone, billing_address, issue_date, due_date, notes, subtotal_cents, tax_cents, deposit_paid_cents, total_cents, payment_url, venmo_url, zelle_recipient)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(id, invoiceNumber, input.customerId || null, input.clientName, input.clientEmail, input.clientPhone, input.billingAddress, input.issueDate, input.dueDate, input.notes, subtotal, tax, depositPaid, total, input.paymentUrl, input.venmoUrl, input.zelleRecipient),
           ...itemRows.map((item) => env.DB.prepare(`
             INSERT INTO invoice_items (id, invoice_id, description, quantity, unit_price_cents, line_total_cents)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -1157,7 +1162,7 @@ const worker = {
           if (!invoice.public_view_token) throw new Error("Public invoice view token was not saved.");
           const publicUrl = `https://www.tccleaningaz.com/invoice/${invoice.public_view_token}`;
           const lines = (items.results || []).map((item) => `${item.description} | ${item.quantity} × ${money(item.unit_price_cents)} = ${money(item.line_total_cents)}`).join("\n");
-          const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", "View invoice online:", publicUrl, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), `Total due: ${money(invoice.total_cents)}`, ...(invoice.payment_url ? ["", "Pay by card via Chase:", invoice.payment_url] : []), ...(invoice.venmo_url ? ["", "Pay with Venmo:", invoice.venmo_url, `Enter ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), ...(invoice.zelle_recipient ? ["", "Pay with Zelle from your banking app:", invoice.zelle_recipient, `Send ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
+          const textBody = [`TC CLEANING SERVICES AZ LLC`, `Invoice ${invoice.invoice_number}`, `Issued: ${invoice.issue_date}`, `Due: ${invoice.due_date}`, "", `Bill to: ${invoice.client_name}`, invoice.client_email, invoice.billing_address, "", "View invoice online:", publicUrl, "", lines, "", `Subtotal: ${money(invoice.subtotal_cents)}`, ...(invoice.tax_cents ? [`Tax: ${money(invoice.tax_cents)}`] : []), ...(invoice.deposit_paid_cents ? [`Deposit paid: -${money(invoice.deposit_paid_cents)}`] : []), `Balance due: ${money(invoice.total_cents)}`, ...(invoice.payment_url ? ["", "Pay by card via Chase:", invoice.payment_url] : []), ...(invoice.venmo_url ? ["", "Pay with Venmo:", invoice.venmo_url, `Enter ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), ...(invoice.zelle_recipient ? ["", "Pay with Zelle from your banking app:", invoice.zelle_recipient, `Send ${money(invoice.total_cents)} and note invoice ${invoice.invoice_number}.`] : []), invoice.notes ? `\n${invoice.notes}` : "", "", "Thank you for choosing TC Cleaning Services.", "(480) 310-8040 | tccleaningaz.com"].filter(Boolean).join("\n");
           let invoicePdf: Uint8Array;
           try {
             invoicePdf = await createInvoicePdf(invoice, items.results || [], await getInvoiceLogo());
