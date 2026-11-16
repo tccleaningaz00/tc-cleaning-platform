@@ -354,7 +354,7 @@ function parseClientInput(value: unknown): ClientInput | null {
     !city || city.length > 80 || !/^[A-Z]{2}$/.test(state) || !/^\d{5}(?:-\d{4})?$/.test(zipCode) ||
     Number.isNaN(bedrooms) || Number.isNaN(bathrooms) || Number.isNaN(squareFeet) ||
     propertyType.length > 60 || frequencyCategory.length > 80 || serviceNotes.length > 5000 ||
-    (propertyId && !/^[0-9a-f-]{36}$/i.test(propertyId))
+    (propertyId && !/^[A-Za-z0-9._~-]{1,128}$/.test(propertyId))
   ) return null;
 
   return {
