@@ -956,7 +956,9 @@ const worker = {
       if (request.method !== "POST" && request.method !== "PATCH") return json({ error: "Method not allowed" }, 405);
       if (request.method === "POST" && path !== "/manager-customers") return json({ error: "Method not allowed" }, 405);
       if (request.method === "PATCH" && !managerCustomerMatch) return json({ error: "Method not allowed" }, 405);
-      if (request.method === "PATCH" && !/^[0-9a-f-]{36}$/i.test(managerCustomerMatch![1])) return json({ error: "Client not found." }, 404);
+      // Customer IDs can originate from imported records and are not always UUIDs.
+      // Restrict the accepted characters and length, then rely on the bound D1 lookup.
+      if (request.method === "PATCH" && !/^[A-Za-z0-9._~-]{1,128}$/.test(managerCustomerMatch![1])) return json({ error: "Client not found." }, 404);
       if (!request.headers.get("Content-Type")?.includes("application/json")) return json({ error: "JSON required" }, 415);
 
       let text: string;
