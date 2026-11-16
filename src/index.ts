@@ -331,7 +331,13 @@ function parseClientInput(value: unknown): ClientInput | null {
   const addressLine2 = text("addressLine2");
   const city = text("city");
   const state = text("state", "AZ").toUpperCase();
-  const zipCode = text("zipCode");
+  const rawZipCode = text("zipCode");
+  const zipDigits = rawZipCode.replace(/\D/g, "");
+  const zipCode = zipDigits.length === 5
+    ? zipDigits
+    : zipDigits.length === 9
+      ? `${zipDigits.slice(0, 5)}-${zipDigits.slice(5)}`
+      : rawZipCode;
   const bedrooms = integer("bedrooms", 0, 20);
   const bathrooms = decimal("bathrooms", 0, 20);
   const squareFeet = integer("squareFeet", 1, 100000);
@@ -966,9 +972,17 @@ const worker = {
       catch { return json({ error: "Could not read client information." }, 400); }
       if (new TextEncoder().encode(text).length > 12000) return json({ error: "Client information is too large." }, 413);
 
-      let input: ClientInput | null;
-      try { input = parseClientInput(JSON.parse(text)); }
+      let parsedInput: unknown;
+      try { parsedInput = JSON.parse(text); }
       catch { return json({ error: "Invalid client information." }, 400); }
+      const input = parseClientInput(parsedInput);
+      if (!input) {
+        const submittedZip = isRecord(parsedInput) && isText(parsedInput.zipCode) ? parsedInput.zipCode.trim() : "";
+        const submittedZipDigits = submittedZip.replace(/\D/g, "");
+        if (submittedZipDigits.length !== 5 && submittedZipDigits.length !== 9) {
+          return json({ error: "Enter a valid 5-digit ZIP code or ZIP+4." }, 400);
+        }
+      }
       if (!input) return json({ error: "Please check the client and property information." }, 400);
 
       const customerId = request.method === "POST" ? crypto.randomUUID() : managerCustomerMatch![1];
