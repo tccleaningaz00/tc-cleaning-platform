@@ -54,7 +54,8 @@ function clientFormValues(customer?: CustomerRecord): ClientFormValues {
 }
 
 function ClientForm({ customer, onCancel, onSaved }: { customer?: CustomerRecord; onCancel: () => void; onSaved: () => void }) {
-  const [values, setValues] = useState(() => clientFormValues(customer));
+  const [originalValues] = useState(() => clientFormValues(customer));
+  const [values, setValues] = useState(originalValues);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,13 +63,21 @@ function ClientForm({ customer, onCancel, onSaved }: { customer?: CustomerRecord
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true); setMessage(""); setError(false);
-    const payload = {
-      ...values,
-      bedrooms: values.bedrooms ? Number(values.bedrooms) : null,
-      bathrooms: values.bathrooms ? Number(values.bathrooms) : null,
-      squareFeet: values.squareFeet ? Number(values.squareFeet) : null,
-      ...(customer?.property_id ? { propertyId: customer.property_id } : {}),
-    };
+    const changedValues = Object.fromEntries(
+      Object.entries(values).filter(([key, value]) => value !== originalValues[key as keyof ClientFormValues]),
+    );
+    const numericFields = ["bedrooms", "bathrooms", "squareFeet"] as const;
+    const numericChanges = Object.fromEntries(numericFields
+      .filter((key) => Object.hasOwn(changedValues, key))
+      .map((key) => [key, values[key] ? Number(values[key]) : null]));
+    const payload = customer
+      ? { ...changedValues, ...numericChanges, ...(customer.property_id ? { propertyId: customer.property_id } : {}) }
+      : {
+          ...values,
+          bedrooms: values.bedrooms ? Number(values.bedrooms) : null,
+          bathrooms: values.bathrooms ? Number(values.bathrooms) : null,
+          squareFeet: values.squareFeet ? Number(values.squareFeet) : null,
+        };
     try {
       const response = await fetch(customer ? `/api/manager/customers/${customer.customer_id}` : "/api/manager/customers", {
         method: customer ? "PATCH" : "POST",
@@ -86,11 +95,12 @@ function ClientForm({ customer, onCancel, onSaved }: { customer?: CustomerRecord
   }
 
   function field(key: keyof ClientFormValues, label: string, options: { required?: boolean; type?: string; placeholder?: string; wide?: boolean; step?: string } = {}) {
-    return <label className={options.wide ? styles.formFieldWide : undefined} key={key}><span>{label}{options.required ? " *" : ""}</span><input type={options.type || "text"} step={options.step} required={options.required} value={values[key]} placeholder={options.placeholder} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /></label>;
+    const required = Boolean(options.required && !customer);
+    return <label className={options.wide ? styles.formFieldWide : undefined} key={key}><span>{label}{required ? " *" : ""}</span><input type={options.type || "text"} step={options.step} required={required} value={values[key]} placeholder={options.placeholder} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /></label>;
   }
 
   return <form className={styles.clientForm} onSubmit={submit}>
-    <div className={styles.formHeading}><div><h3>{customer ? `Update ${customer.roster_name}` : "New client details"}</h3><p>Enter the client and property information below. At least one phone number or email is needed.</p></div><button type="button" className={styles.formClose} onClick={onCancel} aria-label="Close client form">×</button></div>
+    <div className={styles.formHeading}><div><h3>{customer ? `Update ${customer.roster_name}` : "New client details"}</h3><p>{customer ? "Only the fields you change will be saved; existing details stay as they are." : "Enter the client and property information below. At least one phone number or email is needed."}</p></div><button type="button" className={styles.formClose} onClick={onCancel} aria-label="Close client form">×</button></div>
     <div className={styles.formGrid}>
       {field("firstName", "First name", { required: true })}{field("lastName", "Last name", { required: true })}
       {field("phone", "Phone", { type: "tel", placeholder: "(480) 555-0100" })}{field("email", "Email", { type: "email" })}

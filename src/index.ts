@@ -307,6 +307,71 @@ interface ClientInput {
   propertyId?: string;
 }
 
+type ClientPatch = Partial<Omit<ClientInput, "propertyId">> & { propertyId?: string };
+
+function parseClientPatch(value: unknown): ClientPatch | string | null {
+  if (!isRecord(value)) return null;
+  const patch: ClientPatch = {};
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(value, key);
+  const putText = (key: keyof ClientPatch, label: string, max: number, required = false, normalize: (text: string) => string = (text) => text) => {
+    if (!has(key)) return;
+    if (!isText(value[key])) return `${label} must be text.`;
+    const text = normalize(value[key].trim());
+    if ((required && !text) || text.length > max) return `${label} is required and must be no more than ${max} characters.`;
+    (patch as Record<string, unknown>)[key] = text;
+  };
+
+  const textRules: Array<[keyof ClientPatch, string, number, boolean, ((text: string) => string)?]> = [
+    ["firstName", "First name", 80, true], ["lastName", "Last name", 80, true],
+    ["phone", "Phone", 30, false], ["email", "Email", 254, false, (text) => text.toLowerCase()],
+    ["addressLine1", "Street address", 120, true], ["addressLine2", "Unit / apartment", 80, false],
+    ["city", "City", 80, true], ["state", "State", 2, true, (text) => text.toUpperCase()],
+    ["propertyType", "Property type", 60, false], ["frequencyCategory", "Service frequency", 80, false],
+    ["serviceNotes", "Service notes", 5000, false],
+  ];
+  for (const [key, label, max, required, normalize] of textRules) {
+    const error = putText(key, label, max, required, normalize);
+    if (error) return error;
+  }
+
+  if (has("phone") && patch.phone && (!/^[+\d().\-\s]+$/.test(patch.phone) || patch.phone.replace(/\D/g, "").length < 7)) {
+    return "Enter a valid phone number.";
+  }
+  if (has("email") && patch.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(patch.email)) {
+    return "Enter a valid email address.";
+  }
+  if (has("zipCode")) {
+    if (!isText(value.zipCode)) return "Enter a valid 5-digit ZIP code or ZIP+4.";
+    const digits = value.zipCode.replace(/\D/g, "");
+    if (digits.length !== 5 && digits.length !== 9) return "Enter a valid 5-digit ZIP code or ZIP+4.";
+    patch.zipCode = digits.length === 5 ? digits : `${digits.slice(0, 5)}-${digits.slice(5)}`;
+  }
+  if (has("propertyId")) {
+    if (!isText(value.propertyId) || !/^[A-Za-z0-9._~-]{1,128}$/.test(value.propertyId)) return "The linked property could not be identified.";
+    patch.propertyId = value.propertyId;
+  }
+
+  const numericRules = [
+    ["bedrooms", "Bedrooms", 0, 20, true],
+    ["bathrooms", "Bathrooms", 0, 20, false],
+    ["squareFeet", "Square feet", 1, 100000, true],
+  ] as const;
+  for (const [key, label, min, max, integer] of numericRules) {
+    if (!has(key)) continue;
+    const raw = value[key];
+    if (raw === null || raw === "") {
+      patch[key] = null;
+      continue;
+    }
+    const number = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : Number.NaN;
+    if (!Number.isFinite(number) || number < min || number > max || (integer && !Number.isInteger(number))) {
+      return `${label} must be ${integer ? "a whole number" : "a number"} from ${min} to ${max}.`;
+    }
+    patch[key] = number;
+  }
+  return patch;
+}
+
 function parseClientInput(value: unknown): ClientInput | null {
   if (!isRecord(value)) return null;
   const text = (key: string, fallback = "") => isText(value[key]) ? value[key].trim() : fallback;
@@ -975,6 +1040,139 @@ const worker = {
       let parsedInput: unknown;
       try { parsedInput = JSON.parse(text); }
       catch { return json({ error: "Invalid client information." }, 400); }
+
+      if (request.method === "PATCH") {
+        const patchResult = parseClientPatch(parsedInput);
+        if (!patchResult) return json({ error: "Valid client changes are required." }, 400);
+        if (typeof patchResult === "string") return json({ error: patchResult }, 400);
+        const patch = patchResult;
+        const customerId = managerCustomerMatch![1];
+
+        try {
+          const existingCustomer = await env.DB.prepare("SELECT id, first_name, last_name, phone, email FROM customers WHERE id = ?")
+            .bind(customerId).first<{ id: string; first_name: string; last_name: string; phone: string | null; email: string | null }>();
+          if (!existingCustomer) return json({ error: "Client not found." }, 404);
+
+          let existingProperty: { id: string } | null = null;
+          if (patch.propertyId) {
+            existingProperty = await env.DB.prepare("SELECT id FROM properties WHERE id = ? AND customer_id = ?")
+              .bind(patch.propertyId, customerId).first<{ id: string }>();
+            if (!existingProperty) return json({ error: "Linked property not found." }, 404);
+          } else {
+            existingProperty = await env.DB.prepare("SELECT id FROM properties WHERE customer_id = ? LIMIT 1")
+              .bind(customerId).first<{ id: string }>();
+          }
+
+          const nextPhone = patch.phone !== undefined ? patch.phone : existingCustomer.phone || "";
+          const nextEmail = patch.email !== undefined ? patch.email : existingCustomer.email || "";
+          if (!nextPhone && !nextEmail) return json({ error: "Add a phone number or email address before removing the last contact method." }, 400);
+
+          const statements: D1PreparedStatement[] = [];
+          const customerSet: string[] = [];
+          const customerValues: unknown[] = [];
+          if (patch.firstName !== undefined) { customerSet.push("first_name = ?"); customerValues.push(patch.firstName); }
+          if (patch.lastName !== undefined) { customerSet.push("last_name = ?"); customerValues.push(patch.lastName); }
+          if (patch.phone !== undefined) { customerSet.push("phone = ?"); customerValues.push(patch.phone || null); }
+          if (patch.email !== undefined) { customerSet.push("email = ?"); customerValues.push(patch.email || null); }
+          if (patch.phone !== undefined || patch.email !== undefined) {
+            customerSet.push("preferred_contact = ?");
+            customerValues.push(nextEmail && !nextPhone ? "email" : "phone");
+          }
+          if (customerSet.length) {
+            statements.push(env.DB.prepare(`UPDATE customers SET ${customerSet.join(", ")} WHERE id = ?`)
+              .bind(...customerValues, customerId));
+          }
+
+          const propertyFields = [
+            ["addressLine1", "address_line1"], ["addressLine2", "address_line2"],
+            ["city", "city"], ["state", "state"], ["zipCode", "zip_code"],
+            ["bedrooms", "bedrooms"], ["bathrooms", "bathrooms"], ["squareFeet", "square_feet"],
+            ["propertyType", "property_type"],
+          ] as const;
+          const propertySet: string[] = [];
+          const propertyValues: unknown[] = [];
+          for (const [key, column] of propertyFields) {
+            if (patch[key] === undefined) continue;
+            propertySet.push(`${column} = ?`);
+            const value = patch[key];
+            propertyValues.push(typeof value === "string" && (key === "addressLine2" || key === "propertyType") && !value ? null : value);
+          }
+          if (propertySet.length) {
+            if (existingProperty) {
+              statements.push(env.DB.prepare(`UPDATE properties SET ${propertySet.join(", ")} WHERE id = ? AND customer_id = ?`)
+                .bind(...propertyValues, existingProperty.id, customerId));
+            } else {
+              const requiredPropertyValues = {
+                addressLine1: patch.addressLine1,
+                city: patch.city,
+                state: patch.state,
+                zipCode: patch.zipCode,
+              };
+              if (Object.values(requiredPropertyValues).some((value) => !value)) {
+                return json({ error: "To add this client’s first property, enter the street address, city, state, and ZIP code." }, 400);
+              }
+              const newProperty: ClientInput = {
+                firstName: existingCustomer.first_name,
+                lastName: existingCustomer.last_name,
+                phone: nextPhone,
+                email: nextEmail,
+                addressLine1: patch.addressLine1!,
+                addressLine2: patch.addressLine2 || "",
+                city: patch.city!,
+                state: patch.state!,
+                zipCode: patch.zipCode!,
+                bedrooms: patch.bedrooms ?? null,
+                bathrooms: patch.bathrooms ?? null,
+                squareFeet: patch.squareFeet ?? null,
+                propertyType: patch.propertyType || "",
+                frequencyCategory: "",
+                serviceNotes: "",
+              };
+              const newPropertyId = crypto.randomUUID();
+              statements.push(env.DB.prepare(`
+                INSERT INTO properties
+                  (id, customer_id, address_line1, address_line2, city, state, zip_code,
+                   bedrooms, bathrooms, square_feet, property_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).bind(newPropertyId, customerId, newProperty.addressLine1, newProperty.addressLine2 || null,
+                newProperty.city, newProperty.state, newProperty.zipCode, newProperty.bedrooms,
+                newProperty.bathrooms, newProperty.squareFeet, newProperty.propertyType || null));
+            }
+          }
+
+          if (patch.firstName !== undefined || patch.lastName !== undefined || patch.frequencyCategory !== undefined || patch.serviceNotes !== undefined) {
+            const details = await env.DB.prepare(`
+              SELECT md.display_name, md.frequency_category, md.service_notes,
+                     cp.roster_name, cp.frequency_category AS profile_frequency, cp.service_notes AS profile_notes
+              FROM customers c
+              LEFT JOIN client_management_details md ON md.customer_id = c.id
+              LEFT JOIN client_profiles cp ON cp.customer_id = c.id
+              WHERE c.id = ?
+            `).bind(customerId).first<{ display_name: string | null; frequency_category: string | null; service_notes: string | null; roster_name: string | null; profile_frequency: string | null; profile_notes: string | null }>();
+            const displayName = patch.firstName !== undefined || patch.lastName !== undefined
+              ? `${patch.firstName ?? existingCustomer.first_name} ${patch.lastName ?? existingCustomer.last_name}`.trim()
+              : details?.display_name || details?.roster_name || `${existingCustomer.first_name} ${existingCustomer.last_name}`;
+            const frequency = patch.frequencyCategory ?? details?.frequency_category ?? details?.profile_frequency ?? "";
+            const serviceNotes = patch.serviceNotes ?? details?.service_notes ?? details?.profile_notes ?? "";
+            statements.push(env.DB.prepare(`
+              INSERT INTO client_management_details (customer_id, display_name, frequency_category, service_notes)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(customer_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                frequency_category = excluded.frequency_category,
+                service_notes = excluded.service_notes,
+                updated_at = CURRENT_TIMESTAMP
+            `).bind(customerId, displayName, frequency || null, serviceNotes));
+          }
+
+          if (statements.length) await env.DB.batch(statements);
+          return json({ success: true, customerId });
+        } catch (error) {
+          console.error("Client information could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "Client information could not be saved." }, 500);
+        }
+      }
+
       const input = parseClientInput(parsedInput);
       if (!input) {
         const submittedZip = isRecord(parsedInput) && isText(parsedInput.zipCode) ? parsedInput.zipCode.trim() : "";
@@ -985,69 +1183,28 @@ const worker = {
       }
       if (!input) return json({ error: "Please check the client and property information." }, 400);
 
-      const customerId = request.method === "POST" ? crypto.randomUUID() : managerCustomerMatch![1];
-      const propertyId = input.propertyId || crypto.randomUUID();
+      const customerId = crypto.randomUUID();
+      const propertyId = crypto.randomUUID();
       try {
-        if (request.method === "POST") {
-          await env.DB.batch([
-            env.DB.prepare(`
-              INSERT INTO customers
-                (id, first_name, last_name, phone, email, preferred_contact, customer_status)
-              VALUES (?, ?, ?, ?, ?, ?, 'active')
-            `).bind(customerId, input.firstName, input.lastName, input.phone || null, input.email || null, input.email && !input.phone ? "email" : "phone"),
-            env.DB.prepare(`
-              INSERT INTO properties
-                (id, customer_id, address_line1, address_line2, city, state, zip_code,
-                 bedrooms, bathrooms, square_feet, property_type)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).bind(propertyId, customerId, input.addressLine1, input.addressLine2 || null, input.city, input.state, input.zipCode, input.bedrooms, input.bathrooms, input.squareFeet, input.propertyType || null),
-            env.DB.prepare(`
-              INSERT INTO client_management_details
-                (customer_id, display_name, frequency_category, service_notes)
-              VALUES (?, ?, ?, ?)
-            `).bind(customerId, `${input.firstName} ${input.lastName}`, input.frequencyCategory || null, input.serviceNotes),
-          ]);
-          return json({ success: true, customerId }, 201);
-        }
-
-        const existingCustomer = await env.DB.prepare("SELECT id FROM customers WHERE id = ?").bind(customerId).first<{ id: string }>();
-        if (!existingCustomer) return json({ error: "Client not found." }, 404);
-        if (input.propertyId) {
-          const existingProperty = await env.DB.prepare("SELECT id FROM properties WHERE id = ? AND customer_id = ?").bind(input.propertyId, customerId).first<{ id: string }>();
-          if (!existingProperty) return json({ error: "Property not found." }, 404);
-        }
-
-        const result = await env.DB.batch([
+        await env.DB.batch([
           env.DB.prepare(`
-            UPDATE customers
-            SET first_name = ?, last_name = ?, phone = ?, email = ?, preferred_contact = ?, customer_status = 'active'
-            WHERE id = ?
-          `).bind(input.firstName, input.lastName, input.phone || null, input.email || null, input.email && !input.phone ? "email" : "phone", customerId),
-          input.propertyId
-            ? env.DB.prepare(`
-                UPDATE properties
-                SET address_line1 = ?, address_line2 = ?, city = ?, state = ?, zip_code = ?,
-                    bedrooms = ?, bathrooms = ?, square_feet = ?, property_type = ?
-                WHERE id = ? AND customer_id = ?
-              `).bind(input.addressLine1, input.addressLine2 || null, input.city, input.state, input.zipCode, input.bedrooms, input.bathrooms, input.squareFeet, input.propertyType || null, propertyId, customerId)
-            : env.DB.prepare(`
-                INSERT INTO properties
-                  (id, customer_id, address_line1, address_line2, city, state, zip_code,
-                   bedrooms, bathrooms, square_feet, property_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).bind(propertyId, customerId, input.addressLine1, input.addressLine2 || null, input.city, input.state, input.zipCode, input.bedrooms, input.bathrooms, input.squareFeet, input.propertyType || null),
+            INSERT INTO customers
+              (id, first_name, last_name, phone, email, preferred_contact, customer_status)
+            VALUES (?, ?, ?, ?, ?, ?, 'active')
+          `).bind(customerId, input.firstName, input.lastName, input.phone || null, input.email || null, input.email && !input.phone ? "email" : "phone"),
           env.DB.prepare(`
-            INSERT INTO client_management_details (customer_id, display_name, frequency_category, service_notes)
+            INSERT INTO properties
+              (id, customer_id, address_line1, address_line2, city, state, zip_code,
+               bedrooms, bathrooms, square_feet, property_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(propertyId, customerId, input.addressLine1, input.addressLine2 || null, input.city, input.state, input.zipCode, input.bedrooms, input.bathrooms, input.squareFeet, input.propertyType || null),
+          env.DB.prepare(`
+            INSERT INTO client_management_details
+              (customer_id, display_name, frequency_category, service_notes)
             VALUES (?, ?, ?, ?)
-            ON CONFLICT(customer_id) DO UPDATE SET
-              display_name = excluded.display_name,
-              frequency_category = excluded.frequency_category,
-              service_notes = excluded.service_notes,
-              updated_at = CURRENT_TIMESTAMP
           `).bind(customerId, `${input.firstName} ${input.lastName}`, input.frequencyCategory || null, input.serviceNotes),
         ]);
-        if (!result[0].meta.changes) return json({ error: "Client not found." }, 404);
-        return json({ success: true, customerId });
+        return json({ success: true, customerId }, 201);
       } catch (error) {
         console.error("Client information could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
         return json({ error: "Client information could not be saved." }, 500);
