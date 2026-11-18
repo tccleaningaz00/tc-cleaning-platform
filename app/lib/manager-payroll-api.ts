@@ -9,13 +9,16 @@ export async function authorizePayrollManager() {
 }
 
 export async function proxyTimecardRequest(
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   id?: string,
   body?: unknown,
+  action?: "finalize",
 ) {
   const secret = process.env.TC_CLEANING_API_SECRET;
   if (!secret) return NextResponse.json({ error: "The timecard service is not configured." }, { status: 503 });
-  const path = id ? "/manager-timecards/" + encodeURIComponent(id) : "/manager-timecards";
+  const path = id
+    ? "/manager-timecards/" + encodeURIComponent(id) + (action === "finalize" ? "/finalize" : "")
+    : "/manager-timecards";
   try {
     const response = await fetch(getArticlesWorkerUrl(path), {
       method,

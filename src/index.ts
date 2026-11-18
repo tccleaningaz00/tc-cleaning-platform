@@ -488,6 +488,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function parseTimecardDraftInput(value: unknown) {
+  if (!isRecord(value)) return null;
+  const employeeName = value.employeeName;
+  const hourlyRateCents = value.hourlyRateCents;
+  const weekStartDate = value.weekStartDate;
+  const weekdayMinutes = value.weekdayMinutes;
+  const weekDate = typeof weekStartDate === "string" ? new Date(weekStartDate + "T12:00:00Z") : null;
+  const validWeek = typeof weekStartDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(weekStartDate)
+    && weekDate !== null && !Number.isNaN(weekDate.valueOf())
+    && weekDate.toISOString().slice(0, 10) === weekStartDate && weekDate.getUTCDay() === 1;
+  const validMinutes = Array.isArray(weekdayMinutes) && weekdayMinutes.length === 5
+    && weekdayMinutes.every((minutes) => typeof minutes === "number" && Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440);
+  if (typeof employeeName !== "string" || !employeeName.trim() || employeeName.trim().length > 160
+    || typeof hourlyRateCents !== "number" || !Number.isSafeInteger(hourlyRateCents) || hourlyRateCents <= 0 || hourlyRateCents > 100_000
+    || !validWeek || !validMinutes) return null;
+  return { employeeName: employeeName.trim(), hourlyRateCents, weekStartDate: weekStartDate as string, minuteValues: weekdayMinutes as number[] };
+}
+
 function isText(value: unknown): value is string {
   return typeof value === "string";
 }
@@ -641,7 +659,8 @@ const worker = {
     const managerLedgerEntryMatch = path.match(/^\/manager-ledger\/([^/]+)$/);
     const managerLedgerRoute = path === "/manager-ledger" || Boolean(managerLedgerEntryMatch);
     const managerTimecardMatch = path.match(/^\/manager-timecards\/([0-9a-f-]{36})$/i);
-    const managerTimecardRoute = path === "/manager-timecards" || Boolean(managerTimecardMatch);
+    const managerTimecardFinalizeMatch = path.match(/^\/manager-timecards\/([0-9a-f-]{36})\/finalize$/i);
+    const managerTimecardRoute = path === "/manager-timecards" || Boolean(managerTimecardMatch) || Boolean(managerTimecardFinalizeMatch);
     const existingRoute = ["/quote", "/calendar-token", "/calendar-events", "/customers"].includes(path);
 
     if (!resendWebhookRoute && !publicArticleRoute && !publicGalleryRoute && !publicEstimateRoute && !publicInvoiceRoute && !publicDocumentViewRoute && !managerArticleRoute && !managerGalleryRoute && !managerCustomerRoute && !managerInvoiceRoute && !managerEstimateRoute && !managerLedgerRoute && !managerTimecardRoute && !existingRoute) {
@@ -1581,23 +1600,67 @@ const worker = {
 
 
     if (managerTimecardRoute) {
+      if (managerTimecardFinalizeMatch) {
+        const id = managerTimecardFinalizeMatch[1];
+        if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+        try {
+          const draft = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes FROM manager_timecard_drafts WHERE id = ?").bind(id).first<Record<string, unknown>>();
+          if (!draft) return json({ error: "Timecard draft not found." }, 404);
+          const minutes = ["monday_minutes", "tuesday_minutes", "wednesday_minutes", "thursday_minutes", "friday_minutes"]
+            .reduce((sum, field) => sum + Number(draft[field] || 0), 0);
+          if (minutes <= 0) return json({ error: "Enter at least some hours before finalizing this timecard." }, 400);
+          await env.DB.batch([
+            env.DB.prepare("INSERT INTO manager_timecards (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes) SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes FROM manager_timecard_drafts WHERE id = ?").bind(id),
+            env.DB.prepare("DELETE FROM manager_timecard_drafts WHERE id = ?").bind(id),
+          ]);
+          const timecard = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at FROM manager_timecards WHERE id = ?").bind(id).first<Record<string, unknown>>();
+          if (!timecard) return json({ error: "The timecard could not be finalized." }, 500);
+          return json({ success: true, timecard });
+        } catch (error) {
+          console.error("Manager timecard could not be finalized.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+          return json({ error: "The timecard could not be finalized." }, 500);
+        }
+      }
+
       if (managerTimecardMatch) {
         const id = managerTimecardMatch[1];
-        if (request.method !== "DELETE") return json({ error: "Method not allowed." }, 405);
-        try {
-          const result = await env.DB.prepare("DELETE FROM manager_timecards WHERE id = ?").bind(id).run();
-          if (!result.meta.changes) return json({ error: "Timecard not found." }, 404);
-          return json({ success: true, deleted: true });
-        } catch (error) {
-          console.error("Manager timecard could not be deleted.", { errorName: error instanceof Error ? error.name : "UnknownError" });
-          return json({ error: "The saved timecard could not be deleted." }, 500);
+        if (request.method === "DELETE") {
+          try {
+            const finalResult = await env.DB.prepare("DELETE FROM manager_timecards WHERE id = ?").bind(id).run();
+            const draftResult = finalResult.meta.changes ? null : await env.DB.prepare("DELETE FROM manager_timecard_drafts WHERE id = ?").bind(id).run();
+            if (!finalResult.meta.changes && !draftResult?.meta.changes) return json({ error: "Timecard not found." }, 404);
+            return json({ success: true, deleted: true });
+          } catch (error) {
+            console.error("Manager timecard could not be deleted.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+            return json({ error: "The saved timecard could not be deleted." }, 500);
+          }
         }
+        if (request.method === "PATCH") {
+          try {
+            const body: unknown = await request.json();
+            const parsed = parseTimecardDraftInput(body);
+            if (!parsed) return json({ error: "Enter a valid employee name, Monday week start, hourly rate, and up to 24 hours per weekday." }, 400);
+            const result = await env.DB.prepare("UPDATE manager_timecard_drafts SET employee_name = ?, hourly_rate_cents = ?, week_start_date = ?, monday_minutes = ?, tuesday_minutes = ?, wednesday_minutes = ?, thursday_minutes = ?, friday_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+              .bind(parsed.employeeName, parsed.hourlyRateCents, parsed.weekStartDate, ...parsed.minuteValues, id).run();
+            if (!result.meta.changes) {
+              const stillExists = await env.DB.prepare("SELECT id FROM manager_timecard_drafts WHERE id = ?").bind(id).first<{ id: string }>();
+              if (!stillExists) return json({ error: "Timecard draft not found." }, 404);
+            }
+            const draft = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at, updated_at FROM manager_timecard_drafts WHERE id = ?").bind(id).first<Record<string, unknown>>();
+            return json({ success: true, draft });
+          } catch (error) {
+            console.error("Manager timecard draft could not be updated.", { errorName: error instanceof Error ? error.name : "UnknownError" });
+            return json({ error: "The timecard draft could not be updated." }, 500);
+          }
+        }
+        return json({ error: "Method not allowed." }, 405);
       }
 
       if (request.method === "GET") {
         try {
           const result = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at FROM manager_timecards ORDER BY week_start_date DESC, created_at DESC").all<Record<string, unknown>>();
-          return json({ success: true, timecards: result.results || [] });
+          const drafts = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at, updated_at FROM manager_timecard_drafts ORDER BY updated_at DESC").all<Record<string, unknown>>();
+          return json({ success: true, timecards: result.results || [], drafts: drafts.results || [] });
         } catch (error) {
           console.error("Manager timecards could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
           return json({ error: "Saved timecards could not be loaded." }, 500);
@@ -1607,28 +1670,18 @@ const worker = {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       try {
         const body: unknown = await request.json();
-        if (!isRecord(body)) return json({ error: "Check the employee, week, rate, and weekday hours." }, 400);
-        const employeeName = body.employeeName;
-        const hourlyRateCents = body.hourlyRateCents;
-        const weekStartDate = body.weekStartDate;
-        const weekdayMinutes = body.weekdayMinutes;
-        const validWeek = typeof weekStartDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(weekStartDate)
-          && !Number.isNaN(new Date(weekStartDate + "T12:00:00Z").valueOf())
-          && new Date(weekStartDate + "T12:00:00Z").toISOString().slice(0, 10) === weekStartDate
-          && new Date(weekStartDate + "T12:00:00Z").getUTCDay() === 1;
-        const validMinutes = Array.isArray(weekdayMinutes) && weekdayMinutes.length === 5
-          && weekdayMinutes.every((minutes) => typeof minutes === "number" && Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440)
-          && weekdayMinutes.reduce((sum: number, minutes) => sum + minutes, 0) > 0;
-        if (typeof employeeName !== "string" || !employeeName.trim() || employeeName.trim().length > 160
-          || typeof hourlyRateCents !== "number" || !Number.isSafeInteger(hourlyRateCents) || hourlyRateCents <= 0 || hourlyRateCents > 100_000
-          || !validWeek || !validMinutes) {
-          return json({ error: "Enter a valid employee name, Monday week start, hourly rate, and up to 24 hours per weekday." }, 400);
+        const parsed = parseTimecardDraftInput(body);
+        if (!parsed) return json({ error: "Enter a valid employee name, Monday week start, hourly rate, and up to 24 hours per weekday." }, 400);
+        const { employeeName: normalizedName, hourlyRateCents, weekStartDate, minuteValues } = parsed;
+        const existing = await env.DB.prepare("SELECT id FROM manager_timecard_drafts WHERE lower(trim(employee_name)) = lower(trim(?)) AND week_start_date = ?").bind(normalizedName, weekStartDate).first<{ id: string }>();
+        const id = existing?.id || crypto.randomUUID();
+        if (existing) {
+          await env.DB.prepare("UPDATE manager_timecard_drafts SET employee_name = ?, hourly_rate_cents = ?, monday_minutes = ?, tuesday_minutes = ?, wednesday_minutes = ?, thursday_minutes = ?, friday_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(normalizedName, hourlyRateCents, ...minuteValues, id).run();
+        } else {
+          await env.DB.prepare("INSERT INTO manager_timecard_drafts (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, normalizedName, hourlyRateCents, weekStartDate, ...minuteValues).run();
         }
-        const minuteValues = weekdayMinutes as number[];
-        const id = crypto.randomUUID();
-        await env.DB.prepare("INSERT INTO manager_timecards (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, employeeName.trim(), hourlyRateCents, weekStartDate, ...minuteValues).run();
-        const timecard = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at FROM manager_timecards WHERE id = ?").bind(id).first<Record<string, unknown>>();
-        return json({ success: true, timecard }, 201);
+        const draft = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at, updated_at FROM manager_timecard_drafts WHERE id = ?").bind(id).first<Record<string, unknown>>();
+        return json({ success: true, draft }, existing ? 200 : 201);
       } catch (error) {
         console.error("Manager timecard could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
         return json({ error: "The timecard could not be saved." }, 500);

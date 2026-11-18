@@ -15,6 +15,7 @@ type Timecard = {
   friday_minutes: number;
   created_at: string;
 };
+type TimecardDraft = Omit<Timecard, "created_at"> & { created_at: string; updated_at: string };
 
 const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
 const dayFields = ["monday_minutes", "tuesday_minutes", "wednesday_minutes", "thursday_minutes", "friday_minutes"] as const;
@@ -54,6 +55,12 @@ function dateLong(start: string) {
   return Number.isNaN(date.valueOf()) ? start : date.toLocaleDateString("en-US", { timeZone: "UTC", month: "long", day: "numeric", year: "numeric" });
 }
 
+function formatUpdatedAt(value: string) {
+  const normalized = value.includes("T") ? value : value.replace(" ", "T") + "Z";
+  const date = new Date(normalized);
+  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
 function minutesFor(card: Timecard, day: DayName) {
   const index = dayNames.indexOf(day);
   return card[dayFields[index]];
@@ -69,6 +76,8 @@ export default function PayrollTimecards() {
   const [weekStart, setWeekStart] = useState(currentMonday);
   const [hours, setHours] = useState<HoursByDay>(emptyHours);
   const [cards, setCards] = useState<Timecard[]>([]);
+  const [drafts, setDrafts] = useState<TimecardDraft[]>([]);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [preview, setPreview] = useState<Timecard | null>(null);
   const [busy, setBusy] = useState(false);
@@ -85,9 +94,10 @@ export default function PayrollTimecards() {
   const loadTimecards = useCallback(async () => {
     try {
       const response = await fetch("/api/manager/payroll", { cache: "no-store" });
-      const data = await response.json() as { timecards?: Timecard[]; error?: string };
+      const data = await response.json() as { timecards?: Timecard[]; drafts?: TimecardDraft[]; error?: string };
       if (!response.ok) throw new Error(data.error || "Saved timecards could not be loaded.");
       setCards(Array.isArray(data.timecards) ? data.timecards : []);
+      setDrafts(Array.isArray(data.drafts) ? data.drafts : []);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Saved timecards could not be loaded.");
     } finally {
@@ -105,6 +115,7 @@ export default function PayrollTimecards() {
     setHourlyRate("");
     setWeekStart(currentMonday());
     setHours(emptyHours());
+    setEditingDraftId(null);
     setError("");
     setNotice("");
   }
@@ -125,7 +136,7 @@ export default function PayrollTimecards() {
     };
   }
 
-  function validateForm() {
+  function validateForm(requireHours = false) {
     if (!employeeName.trim() || employeeName.trim().length > 160) return "Enter an employee name (up to 160 characters).";
     if (!Number.isFinite(Number(hourlyRate)) || draftRateCents <= 0 || draftRateCents > 100_000) return "Enter an hourly rate greater than $0 and no more than $1,000.";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) return "Choose a valid week-start date.";
@@ -135,37 +146,86 @@ export default function PayrollTimecards() {
       const value = hours[day].trim() ? Number(hours[day]) : 0;
       if (!Number.isFinite(value) || value < 0 || value > 24) return day + " hours must be between 0 and 24.";
     }
-    if (draftTotalMinutes <= 0) return "Enter at least one hour before saving the timecard.";
+    if (requireHours && draftTotalMinutes <= 0) return "Enter at least some hours before finalizing this timecard.";
     return "";
   }
 
-  async function saveTimecard() {
+  function timecardPayload() {
+    return {
+      employeeName: employeeName.trim(),
+      hourlyRateCents: draftRateCents,
+      weekStartDate: weekStart,
+      weekdayMinutes: draftMinutes,
+    };
+  }
+
+  async function persistDraft() {
+    const response = await fetch(editingDraftId ? "/api/manager/payroll/" + encodeURIComponent(editingDraftId) : "/api/manager/payroll", {
+      method: editingDraftId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(timecardPayload()),
+    });
+    const data = await response.json() as { error?: string; draft?: TimecardDraft };
+    if (!response.ok || !data.draft) throw new Error(data.error || "Timecard draft could not be saved.");
+    setEditingDraftId(data.draft.id);
+    return data.draft;
+  }
+
+  async function saveDraft() {
     const validationError = validateForm();
     if (validationError) { setError(validationError); setNotice(""); return; }
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const response = await fetch("/api/manager/payroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          employeeName: employeeName.trim(),
-          hourlyRateCents: draftRateCents,
-          weekStartDate: weekStart,
-          weekdayMinutes: draftMinutes,
-        }),
-      });
-      const data = await response.json() as { error?: string; timecard?: Timecard };
-      if (!response.ok || !data.timecard) throw new Error(data.error || "Timecard could not be saved.");
+      const draft = await persistDraft();
       await loadTimecards();
-      resetForm();
-      setNotice("Timecard saved. It is available in Saved timecards to preview or download.");
+      setNotice("Draft saved for " + draft.employee_name + ". You can reopen it during the week and add more hours.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Timecard could not be saved.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function finalizeAndDownload() {
+    const validationError = validateForm(true);
+    if (validationError) { setError(validationError); setNotice(""); return; }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const draft = await persistDraft();
+      const response = await fetch("/api/manager/payroll/" + encodeURIComponent(draft.id) + "/finalize", { method: "POST" });
+      const data = await response.json() as { error?: string; timecard?: Timecard };
+      if (!response.ok || !data.timecard) throw new Error(data.error || "Timecard could not be finalized.");
+      setCards((current) => [data.timecard as Timecard, ...current.filter((card) => card.id !== draft.id)]);
+      setDrafts((current) => current.filter((card) => card.id !== draft.id));
+      resetForm();
+      setNotice("Timecard finalized. Your branded PDF is downloading.");
+      await downloadPdf(data.timecard);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Timecard could not be finalized.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function reopenDraft(draft: TimecardDraft) {
+    setEmployeeName(draft.employee_name);
+    setHourlyRate((draft.hourly_rate_cents / 100).toFixed(2));
+    setWeekStart(draft.week_start_date);
+    setHours({
+      Monday: (draft.monday_minutes / 60).toString(),
+      Tuesday: (draft.tuesday_minutes / 60).toString(),
+      Wednesday: (draft.wednesday_minutes / 60).toString(),
+      Thursday: (draft.thursday_minutes / 60).toString(),
+      Friday: (draft.friday_minutes / 60).toString(),
+    });
+    setEditingDraftId(draft.id);
+    setError("");
+    setNotice("Draft reopened. Add this day's hours, then save your changes.");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function deleteTimecard(card: Timecard) {
@@ -178,6 +238,7 @@ export default function PayrollTimecards() {
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "Timecard could not be deleted.");
       setCards((current) => current.filter((entry) => entry.id !== card.id));
+      setDrafts((current) => current.filter((entry) => entry.id !== card.id));
       if (preview?.id === card.id) setPreview(null);
       setNotice("Saved timecard deleted.");
     } catch (caught) {
@@ -273,14 +334,15 @@ export default function PayrollTimecards() {
   }
 
   const filteredCards = cards.filter((card) => (card.employee_name + " " + card.week_start_date).toLowerCase().includes(filter.toLowerCase()));
+  const filteredDrafts = drafts.filter((card) => (card.employee_name + " " + card.week_start_date).toLowerCase().includes(filter.toLowerCase()));
   const draftForPreview = draftCard();
 
   return (
     <div style={{ marginTop: 28 }}>
       <section style={{ background: "white", border: "1px solid " + border, borderRadius: 12, padding: "clamp(18px, 4vw, 30px)", boxShadow: "0 3px 14px rgba(0,0,0,.04)" }}>
         <p style={{ margin: "0 0 5px", color: green, fontWeight: 700, letterSpacing: ".08em", fontSize: 12 }}>TC CLEANING SERVICES AZ LLC</p>
-        <h2 style={{ margin: "0 0 8px", fontSize: 25 }}>Create a weekly timecard</h2>
-        <p style={{ marginTop: 0, color: muted, lineHeight: 1.55 }}>Enter one employee and one Monday–Friday workweek. Save it for the history, preview it any time, or download a branded PDF.</p>
+        <h2 style={{ margin: "0 0 8px", fontSize: 25 }}>{editingDraftId ? "Update this week's timecard" : "Start a weekly timecard"}</h2>
+        <p style={{ marginTop: 0, color: muted, lineHeight: 1.55 }}>Start a draft, save it after entering hours, and reopen it on later days. On Friday, finalize the week and download a branded PDF.</p>
         {notice && <p role="status" style={{ padding: 12, borderRadius: 7, background: "#e8f5ec", color: "#176b40" }}>{notice}</p>}
         {error && <p role="alert" style={{ padding: 12, borderRadius: 7, background: "#fff0ef", color: "#8a3028" }}>{error}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 14 }}>
@@ -305,15 +367,42 @@ export default function PayrollTimecards() {
         <p style={{ color: muted, fontSize: 13, lineHeight: 1.5 }}>This creates a timecard and gross wage estimate only. It does not calculate bonuses, tax, deductions, withholding, or final payroll, and it does not automatically post an expense to Business Reports.</p>
         <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
           <button type="button" disabled={busy} onClick={() => { const validationError = validateForm(); if (validationError) { setError(validationError); setNotice(""); } else { setError(""); setNotice(""); setPreview(draftForPreview); } }} style={{ ...buttonStyle, background: "#244763", opacity: busy ? .6 : 1 }}>Preview timecard</button>
-          <button type="button" disabled={busy} onClick={() => void saveTimecard()} style={{ ...buttonStyle, opacity: busy ? .6 : 1 }}>{busy ? "Saving…" : "Save timecard"}</button>
+          <button type="button" disabled={busy} onClick={() => void saveDraft()} style={{ ...buttonStyle, opacity: busy ? .6 : 1 }}>{busy ? "Saving…" : editingDraftId ? "Save draft changes" : "Save weekly draft"}</button>
+          <button type="button" disabled={busy} onClick={() => void finalizeAndDownload()} style={{ ...buttonStyle, background: "#244763", opacity: busy ? .6 : 1 }}>{busy ? "Finalizing…" : "Finalize & download PDF"}</button>
           <button type="button" disabled={busy} onClick={resetForm} style={{ ...buttonStyle, background: "#eef2f4", color: ink, opacity: busy ? .6 : 1 }}>Clear for next employee</button>
         </div>
       </section>
 
       <section style={{ marginTop: 26, background: "white", border: "1px solid " + border, borderRadius: 12, padding: "clamp(18px, 4vw, 30px)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <div><h2 style={{ margin: 0 }}>Saved timecards</h2><p style={{ margin: "6px 0 0", color: muted }}>Saved records remain available for later preview, PDF download, or deletion.</p></div>
-          <input aria-label="Search saved timecards" placeholder="Search employee or week" value={filter} onChange={(event) => setFilter(event.target.value)} style={{ ...fieldStyle, maxWidth: 280 }} />
+          <div><h2 style={{ margin: 0 }}>Timecards in progress</h2><p style={{ margin: "6px 0 0", color: muted }}>Reopen a draft to add another day&apos;s hours. Drafts do not count as finalized payroll records.</p></div>
+          <input aria-label="Search timecards" placeholder="Search employee or week" value={filter} onChange={(event) => setFilter(event.target.value)} style={{ ...fieldStyle, maxWidth: 280 }} />
+        </div>
+        {loading ? <p style={{ color: muted }}>Loading drafts…</p> : filteredDrafts.length === 0 ? <p style={{ color: muted }}>{filter ? "No drafts match that search." : "No timecards in progress. Start one above when the workweek begins."}</p> : (
+          <div style={{ display: "grid", gap: 11, marginTop: 16 }}>
+            {filteredDrafts.map((draft) => {
+              const minutes = totalMinutes(draft);
+              return (
+                <article key={draft.id} style={{ border: "1px solid " + border, borderRadius: 9, padding: 15, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <strong>{draft.employee_name}</strong>
+                    <p style={{ margin: "5px 0 0", color: muted }}>Week of {dateLong(draft.week_start_date)} · {totalHours(minutes).toFixed(2)} hours so far · Updated {formatUpdatedAt(draft.updated_at)}</p>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => reopenDraft(draft)} style={{ ...buttonStyle, background: "#244763" }}>Open & add hours</button>
+                    <button type="button" onClick={() => setPreview(draft)} style={{ ...buttonStyle, background: "#526878" }}>Preview</button>
+                    <button type="button" disabled={busy} onClick={() => void deleteTimecard(draft)} style={{ ...buttonStyle, background: "#fff0ef", color: "#8a3028" }}>Delete</button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section style={{ marginTop: 26, background: "white", border: "1px solid " + border, borderRadius: 12, padding: "clamp(18px, 4vw, 30px)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div><h2 style={{ margin: 0 }}>Finalized timecards</h2><p style={{ margin: "6px 0 0", color: muted }}>Finalized records remain available for later preview, PDF download, or deletion.</p></div>
         </div>
         {loading ? <p style={{ color: muted }}>Loading saved timecards…</p> : filteredCards.length === 0 ? <p style={{ color: muted }}>{filter ? "No saved timecards match that search." : "No saved timecards yet."}</p> : (
           <div style={{ display: "grid", gap: 11, marginTop: 16 }}>
