@@ -12,10 +12,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "JSON is required." }, { status: 415 });
   }
   const contentLength = Number(request.headers.get("Content-Length") || 0);
-  if (contentLength > 4000) return NextResponse.json({ error: "The timecard is too large." }, { status: 413 });
+  if (contentLength > 64_000) return NextResponse.json({ error: "The timecard is too large." }, { status: 413 });
   const body: unknown = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "Check the employee, week, rate, and hours." }, { status: 400 });
+    return NextResponse.json({ error: "Check the employee, week, rate, and house entries." }, { status: 400 });
   }
   return proxyTimecardRequest("POST", undefined, body);
 }
