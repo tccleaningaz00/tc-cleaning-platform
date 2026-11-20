@@ -1,0 +1,21 @@
+ALTER TABLE manager_timecard_drafts ADD COLUMN monday_start_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN monday_end_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN tuesday_start_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN tuesday_end_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN wednesday_start_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN wednesday_end_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN thursday_start_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN thursday_end_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN friday_start_time TEXT;
+ALTER TABLE manager_timecard_drafts ADD COLUMN friday_end_time TEXT;
+
+ALTER TABLE manager_timecards ADD COLUMN monday_start_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN monday_end_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN tuesday_start_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN tuesday_end_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN wednesday_start_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN wednesday_end_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN thursday_start_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN thursday_end_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN friday_start_time TEXT;
+ALTER TABLE manager_timecards ADD COLUMN friday_end_time TEXT;

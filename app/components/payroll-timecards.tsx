@@ -13,15 +13,37 @@ type Timecard = {
   wednesday_minutes: number;
   thursday_minutes: number;
   friday_minutes: number;
+  monday_start_time: string | null;
+  monday_end_time: string | null;
+  tuesday_start_time: string | null;
+  tuesday_end_time: string | null;
+  wednesday_start_time: string | null;
+  wednesday_end_time: string | null;
+  thursday_start_time: string | null;
+  thursday_end_time: string | null;
+  friday_start_time: string | null;
+  friday_end_time: string | null;
   created_at: string;
 };
 type TimecardDraft = Omit<Timecard, "created_at"> & { created_at: string; updated_at: string };
 
 const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
 const dayFields = ["monday_minutes", "tuesday_minutes", "wednesday_minutes", "thursday_minutes", "friday_minutes"] as const;
+const clockFields = [
+  ["monday_start_time", "monday_end_time"],
+  ["tuesday_start_time", "tuesday_end_time"],
+  ["wednesday_start_time", "wednesday_end_time"],
+  ["thursday_start_time", "thursday_end_time"],
+  ["friday_start_time", "friday_end_time"],
+] as const;
 type DayName = (typeof dayNames)[number];
-type HoursByDay = Record<DayName, string>;
-const emptyHours = (): HoursByDay => ({ Monday: "", Tuesday: "", Wednesday: "", Thursday: "", Friday: "" });
+type ClockRange = { startTime: string; endTime: string };
+type ClockTimesByDay = Record<DayName, ClockRange>;
+type LegacyMinutesByDay = Record<DayName, number>;
+const emptyClockTimes = (): ClockTimesByDay => ({
+  Monday: { startTime: "", endTime: "" }, Tuesday: { startTime: "", endTime: "" }, Wednesday: { startTime: "", endTime: "" }, Thursday: { startTime: "", endTime: "" }, Friday: { startTime: "", endTime: "" },
+});
+const emptyLegacyMinutes = (): LegacyMinutesByDay => ({ Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0 });
 const navy = "#101923";
 const green = "#16834a";
 const brightGreen = "#8bd34a";
@@ -35,6 +57,17 @@ const currency = (cents: number) => new Intl.NumberFormat("en-US", { style: "cur
 const totalMinutes = (card: Pick<Timecard, typeof dayFields[number]>) => dayFields.reduce((sum, field) => sum + card[field], 0);
 const totalHours = (minutes: number) => minutes / 60;
 const grossCents = (rateCents: number, minutes: number) => Math.round(rateCents * minutes / 60);
+const durationFromTimes = (startTime: string, endTime: string) => {
+  if (!startTime || !endTime) return 0;
+  const [startHour, startMinute] = startTime.split(":").map(Number);
+  const [endHour, endMinute] = endTime.split(":").map(Number);
+  return (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+};
+const formatClockTime = (time: string | null | undefined) => {
+  if (!time) return "—";
+  const [hour, minute] = time.split(":").map(Number);
+  return new Date(Date.UTC(2000, 0, 1, hour, minute)).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+};
 
 function currentMonday() {
   const date = new Date();
@@ -66,6 +99,11 @@ function minutesFor(card: Timecard, day: DayName) {
   return card[dayFields[index]];
 }
 
+function timesFor(card: Timecard, day: DayName) {
+  const index = dayNames.indexOf(day);
+  return { startTime: card[clockFields[index][0]] || "", endTime: card[clockFields[index][1]] || "" };
+}
+
 function safePdfText(value: string) {
   return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, " ");
 }
@@ -74,7 +112,8 @@ export default function PayrollTimecards() {
   const [employeeName, setEmployeeName] = useState("");
   const [hourlyRate, setHourlyRate] = useState("");
   const [weekStart, setWeekStart] = useState(currentMonday);
-  const [hours, setHours] = useState<HoursByDay>(emptyHours);
+  const [clockTimes, setClockTimes] = useState<ClockTimesByDay>(emptyClockTimes);
+  const [legacyMinutes, setLegacyMinutes] = useState<LegacyMinutesByDay>(emptyLegacyMinutes);
   const [cards, setCards] = useState<Timecard[]>([]);
   const [drafts, setDrafts] = useState<TimecardDraft[]>([]);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
@@ -85,7 +124,11 @@ export default function PayrollTimecards() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const draftMinutes = useMemo(() => dayNames.map((day) => Math.max(0, Math.min(1440, Math.round((Number(hours[day]) || 0) * 60)))), [hours]);
+  const draftMinutes = useMemo(() => dayNames.map((day) => {
+    const { startTime, endTime } = clockTimes[day];
+    if (!startTime || !endTime) return legacyMinutes[day];
+    return Math.max(0, Math.min(1440, durationFromTimes(startTime, endTime)));
+  }), [clockTimes, legacyMinutes]);
   const draftTotalMinutes = draftMinutes.reduce((sum, minutes) => sum + minutes, 0);
   const draftRateCents = Math.round((Number(hourlyRate) || 0) * 100);
   const draftGrossCents = grossCents(draftRateCents, draftTotalMinutes);
@@ -114,7 +157,8 @@ export default function PayrollTimecards() {
     setEmployeeName("");
     setHourlyRate("");
     setWeekStart(currentMonday());
-    setHours(emptyHours());
+    setClockTimes(emptyClockTimes());
+    setLegacyMinutes(emptyLegacyMinutes());
     setEditingDraftId(null);
     setError("");
     setNotice("");
@@ -132,6 +176,16 @@ export default function PayrollTimecards() {
       wednesday_minutes: draftMinutes[2],
       thursday_minutes: draftMinutes[3],
       friday_minutes: draftMinutes[4],
+      monday_start_time: clockTimes.Monday.startTime || null,
+      monday_end_time: clockTimes.Monday.endTime || null,
+      tuesday_start_time: clockTimes.Tuesday.startTime || null,
+      tuesday_end_time: clockTimes.Tuesday.endTime || null,
+      wednesday_start_time: clockTimes.Wednesday.startTime || null,
+      wednesday_end_time: clockTimes.Wednesday.endTime || null,
+      thursday_start_time: clockTimes.Thursday.startTime || null,
+      thursday_end_time: clockTimes.Thursday.endTime || null,
+      friday_start_time: clockTimes.Friday.startTime || null,
+      friday_end_time: clockTimes.Friday.endTime || null,
       created_at: "",
     };
   }
@@ -143,9 +197,11 @@ export default function PayrollTimecards() {
     const parsedDate = new Date(weekStart + "T12:00:00Z");
     if (Number.isNaN(parsedDate.valueOf()) || parsedDate.toISOString().slice(0, 10) !== weekStart || parsedDate.getUTCDay() !== 1) return "The selected week must start on a Monday.";
     for (const day of dayNames) {
-      const value = hours[day].trim() ? Number(hours[day]) : 0;
-      if (!Number.isFinite(value) || value < 0 || value > 24) return day + " hours must be between 0 and 24.";
+      const { startTime, endTime } = clockTimes[day];
+      if (startTime && endTime && endTime <= startTime) return day + " ending time must be later than the starting time.";
+      if (draftMinutes[dayNames.indexOf(day)] > 1440) return day + " cannot exceed 24 hours.";
     }
+    if (requireHours && dayNames.some((day) => Boolean(clockTimes[day].startTime) !== Boolean(clockTimes[day].endTime))) return "Complete both the start and ending time for each day you worked before finalizing.";
     if (requireHours && draftTotalMinutes <= 0) return "Enter at least some hours before finalizing this timecard.";
     return "";
   }
@@ -156,6 +212,7 @@ export default function PayrollTimecards() {
       hourlyRateCents: draftRateCents,
       weekStartDate: weekStart,
       weekdayMinutes: draftMinutes,
+      weekdayTimes: dayNames.map((day) => clockTimes[day]),
     };
   }
 
@@ -215,13 +272,8 @@ export default function PayrollTimecards() {
     setEmployeeName(draft.employee_name);
     setHourlyRate((draft.hourly_rate_cents / 100).toFixed(2));
     setWeekStart(draft.week_start_date);
-    setHours({
-      Monday: (draft.monday_minutes / 60).toString(),
-      Tuesday: (draft.tuesday_minutes / 60).toString(),
-      Wednesday: (draft.wednesday_minutes / 60).toString(),
-      Thursday: (draft.thursday_minutes / 60).toString(),
-      Friday: (draft.friday_minutes / 60).toString(),
-    });
+    setClockTimes({ Monday: timesFor(draft, "Monday"), Tuesday: timesFor(draft, "Tuesday"), Wednesday: timesFor(draft, "Wednesday"), Thursday: timesFor(draft, "Thursday"), Friday: timesFor(draft, "Friday") });
+    setLegacyMinutes({ Monday: draft.monday_minutes, Tuesday: draft.tuesday_minutes, Wednesday: draft.wednesday_minutes, Thursday: draft.thursday_minutes, Friday: draft.friday_minutes });
     setEditingDraftId(draft.id);
     setError("");
     setNotice("Draft reopened. Add this day's hours, then save your changes.");
@@ -291,13 +343,18 @@ export default function PayrollTimecards() {
       page.drawText(currency(card.hourly_rate_cents), { x: 360, y: 579, size: 16, font: bold, color: pdfInk });
       page.drawRectangle({ x: 42, y: 516, width: 528, height: 30, color: color("#edf2f5") });
       page.drawText("DAY", { x: 54, y: 527, size: 9, font: bold, color: pdfMuted });
-      page.drawText("DATE", { x: 220, y: 527, size: 9, font: bold, color: pdfMuted });
-      page.drawText("HOURS", { x: 455, y: 527, size: 9, font: bold, color: pdfMuted });
+      page.drawText("DATE", { x: 160, y: 527, size: 9, font: bold, color: pdfMuted });
+      page.drawText("START", { x: 275, y: 527, size: 9, font: bold, color: pdfMuted });
+      page.drawText("END", { x: 370, y: 527, size: 9, font: bold, color: pdfMuted });
+      page.drawText("HOURS", { x: 475, y: 527, size: 9, font: bold, color: pdfMuted });
       let y = 492;
       dayNames.forEach((day, index) => {
         page.drawText(day, { x: 54, y, size: 11, font: regular, color: pdfInk });
-        page.drawText(dateForDay(card.week_start_date, index), { x: 220, y, size: 11, font: regular, color: pdfInk });
-        page.drawText((minutesFor(card, day) / 60).toFixed(2), { x: 455, y, size: 11, font: regular, color: pdfInk });
+        page.drawText(dateForDay(card.week_start_date, index), { x: 160, y, size: 11, font: regular, color: pdfInk });
+        const times = timesFor(card, day);
+        page.drawText(safePdfText(formatClockTime(times.startTime)), { x: 275, y, size: 10, font: regular, color: pdfInk });
+        page.drawText(safePdfText(formatClockTime(times.endTime)), { x: 370, y, size: 10, font: regular, color: pdfInk });
+        page.drawText((minutesFor(card, day) / 60).toFixed(2), { x: 475, y, size: 11, font: regular, color: pdfInk });
         page.drawLine({ start: { x: 42, y: y - 10 }, end: { x: 570, y: y - 10 }, thickness: 0.7, color: pdfBorder });
         y -= 44;
       });
@@ -342,7 +399,7 @@ export default function PayrollTimecards() {
       <section style={{ background: "white", border: "1px solid " + border, borderRadius: 12, padding: "clamp(18px, 4vw, 30px)", boxShadow: "0 3px 14px rgba(0,0,0,.04)" }}>
         <p style={{ margin: "0 0 5px", color: green, fontWeight: 700, letterSpacing: ".08em", fontSize: 12 }}>TC CLEANING SERVICES AZ LLC</p>
         <h2 style={{ margin: "0 0 8px", fontSize: 25 }}>{editingDraftId ? "Update this week's timecard" : "Start a weekly timecard"}</h2>
-        <p style={{ marginTop: 0, color: muted, lineHeight: 1.55 }}>Start a draft, save it after entering hours, and reopen it on later days. On Friday, finalize the week and download a branded PDF.</p>
+        <p style={{ marginTop: 0, color: muted, lineHeight: 1.55 }}>Enter each day&apos;s start and end time. Hours and gross pay calculate automatically. Save the draft as the week progresses, then finalize and download a branded PDF.</p>
         {notice && <p role="status" style={{ padding: 12, borderRadius: 7, background: "#e8f5ec", color: "#176b40" }}>{notice}</p>}
         {error && <p role="alert" style={{ padding: 12, borderRadius: 7, background: "#fff0ef", color: "#8a3028" }}>{error}</p>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 14 }}>
@@ -350,13 +407,23 @@ export default function PayrollTimecards() {
           <label style={labelStyle}>Hourly rate ($)<input required type="number" min="0.01" max="1000" step="0.01" value={hourlyRate} onChange={(event) => setHourlyRate(event.target.value)} placeholder="Enter this employee's rate" style={fieldStyle} /></label>
           <label style={labelStyle}>Week starts (Monday)<input required type="date" value={weekStart} onChange={(event) => setWeekStart(event.target.value)} style={fieldStyle} /></label>
         </div>
-        <h3 style={{ margin: "24px 0 12px" }}>Hours by day</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 145px), 1fr))", gap: 12 }}>
+        <h3 style={{ margin: "24px 0 12px" }}>Clock in and clock out</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 12 }}>
           {dayNames.map((day, index) => (
-            <label key={day} style={labelStyle}>
-              {day} <span style={{ color: muted, fontWeight: 400 }}>({dateForDay(weekStart, index) || "select a Monday"})</span>
-              <input type="number" min="0" max="24" step="0.25" inputMode="decimal" value={hours[day]} onChange={(event) => setHours((current) => ({ ...current, [day]: event.target.value }))} placeholder="0.00" style={fieldStyle} />
-            </label>
+            <fieldset key={day} style={{ minWidth: 0, margin: 0, padding: 12, border: "1px solid " + border, borderRadius: 8 }}>
+              <legend style={{ padding: "0 5px", color: ink, fontWeight: 700 }}>{day} · {dateForDay(weekStart, index) || "select a Monday"}</legend>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+                <label style={labelStyle}>Start<input aria-label={day + " start time"} type="time" value={clockTimes[day].startTime} onChange={(event) => setClockTimes((current) => ({ ...current, [day]: { ...current[day], startTime: event.target.value } }))} style={fieldStyle} /></label>
+                <label style={labelStyle}>End<input aria-label={day + " ending time"} type="time" value={clockTimes[day].endTime} onChange={(event) => setClockTimes((current) => ({ ...current, [day]: { ...current[day], endTime: event.target.value } }))} style={fieldStyle} /></label>
+              </div>
+              <p style={{ margin: "9px 0 0", fontSize: 13, color: muted }}>
+                {clockTimes[day].startTime && clockTimes[day].endTime
+                  ? "Calculated: " + totalHours(draftMinutes[index]).toFixed(2) + " hours"
+                  : legacyMinutes[day] > 0
+                    ? "Previously recorded: " + totalHours(legacyMinutes[day]).toFixed(2) + " hours. Complete both times to replace."
+                    : "Enter both times to calculate this shift."}
+              </p>
+            </fieldset>
           ))}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", alignItems: "center", gap: 14, marginTop: 20, padding: 16, border: "1px solid " + border, borderRadius: 9, background: "#f7f9fa" }}>
@@ -364,7 +431,7 @@ export default function PayrollTimecards() {
           <div><span style={{ display: "block", color: muted, fontSize: 13 }}>STRAIGHT-TIME GROSS ESTIMATE</span><strong style={{ fontSize: 22 }}>{currency(draftGrossCents)}</strong></div>
           {isOverForty && <p role="alert" style={{ margin: 0, padding: 10, borderRadius: 7, background: "#fff4dc", color: "#775715", gridColumn: "1 / -1" }}>More than 40 hours are entered. This straight-time estimate does not calculate overtime premiums; review the applicable payroll rules before paying.</p>}
         </div>
-        <p style={{ color: muted, fontSize: 13, lineHeight: 1.5 }}>This creates a timecard and gross wage estimate only. It does not calculate bonuses, tax, deductions, withholding, or final payroll, and it does not automatically post an expense to Business Reports.</p>
+        <p style={{ color: muted, fontSize: 13, lineHeight: 1.5 }}>Hours are calculated from start to end and include any break time; unpaid breaks are not subtracted. This creates a timecard and gross wage estimate only. It does not calculate bonuses, tax, deductions, withholding, or final payroll, and it does not automatically post an expense to Business Reports.</p>
         <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
           <button type="button" disabled={busy} onClick={() => { const validationError = validateForm(); if (validationError) { setError(validationError); setNotice(""); } else { setError(""); setNotice(""); setPreview(draftForPreview); } }} style={{ ...buttonStyle, background: "#244763", opacity: busy ? .6 : 1 }}>Preview timecard</button>
           <button type="button" disabled={busy} onClick={() => void saveDraft()} style={{ ...buttonStyle, opacity: busy ? .6 : 1 }}>{busy ? "Saving…" : editingDraftId ? "Save draft changes" : "Save weekly draft"}</button>
@@ -444,9 +511,12 @@ export default function PayrollTimecards() {
                 <div><span style={{ display: "block", color: muted, fontSize: 12, fontWeight: 700 }}>HOURLY RATE</span><strong style={{ fontSize: 18 }}>{currency(preview.hourly_rate_cents)}</strong></div>
               </div>
               <div style={{ marginTop: 18 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)", gap: 7, padding: "8px 4px", color: muted, fontSize: 11, fontWeight: 700, borderBottom: "1px solid " + border }}>
+                  <span>DAY · DATE</span><span style={{ textAlign: "right" }}>START – END · HOURS</span>
+                </div>
                 {dayNames.map((day, index) => (
-                  <div key={day} style={{ display: "grid", gridTemplateColumns: "minmax(105px,1fr) minmax(90px,1fr) minmax(75px,.7fr)", gap: 8, padding: "12px 4px", borderBottom: "1px solid " + border }}>
-                    <strong>{day}</strong><span style={{ color: muted }}>{dateForDay(preview.week_start_date, index)}</span><span style={{ textAlign: "right" }}>{(minutesFor(preview, day) / 60).toFixed(2)} hrs</span>
+                  <div key={day} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1.4fr)", alignItems: "center", gap: 7, padding: "12px 4px", borderBottom: "1px solid " + border, fontSize: 14 }}>
+                    <span><strong>{day}</strong><span style={{ color: muted }}> · {dateForDay(preview.week_start_date, index)}</span></span><span style={{ textAlign: "right" }}>{formatClockTime(timesFor(preview, day).startTime)} – {formatClockTime(timesFor(preview, day).endTime)} · {(minutesFor(preview, day) / 60).toFixed(2)} hrs</span>
                   </div>
                 ))}
               </div>
@@ -455,7 +525,7 @@ export default function PayrollTimecards() {
                 <p style={{ display: "flex", justifyContent: "space-between", gap: 15, margin: "8px 0", paddingTop: 10, borderTop: "1px solid " + border, fontSize: 18 }}>Straight-time gross estimate <strong>{currency(grossCents(preview.hourly_rate_cents, totalMinutes(preview)))}</strong></p>
               </div>
               {totalMinutes(preview) > 40 * 60 && <p role="alert" style={{ padding: 11, borderRadius: 7, background: "#fff4dc", color: "#775715" }}>Over 40 hours entered. Review applicable overtime before using this estimate for payroll.</p>}
-              <p style={{ marginTop: 18, paddingTop: 13, borderTop: "1px solid " + border, color: muted, fontSize: 13, lineHeight: 1.5 }}>Timecard only. Estimate uses the entered hourly rate and recorded hours; it excludes overtime premiums, bonuses, taxes, deductions, and withholding. It is not a final paystub.</p>
+              <p style={{ marginTop: 18, paddingTop: 13, borderTop: "1px solid " + border, color: muted, fontSize: 13, lineHeight: 1.5 }}>Timecard only. Hours are elapsed time between recorded start and end and include breaks. Estimate uses the entered hourly rate; it excludes overtime premiums, bonuses, taxes, deductions, and withholding. It is not a final paystub.</p>
               <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
                 <button type="button" onClick={() => void downloadPdf(preview)} style={buttonStyle}>Download branded PDF</button>
                 <button type="button" onClick={() => setPreview(null)} style={{ ...buttonStyle, background: "#eef2f4", color: ink }}>Close preview</button>

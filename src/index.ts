@@ -488,22 +488,44 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const timecardClockColumns = [
+  "monday_start_time", "monday_end_time", "tuesday_start_time", "tuesday_end_time",
+  "wednesday_start_time", "wednesday_end_time", "thursday_start_time", "thursday_end_time",
+  "friday_start_time", "friday_end_time",
+];
+const timecardClockColumnSql = timecardClockColumns.join(", ");
+const timecardClockAssignmentsSql = timecardClockColumns.map((column) => `${column} = ?`).join(", ");
+
 function parseTimecardDraftInput(value: unknown) {
   if (!isRecord(value)) return null;
   const employeeName = value.employeeName;
   const hourlyRateCents = value.hourlyRateCents;
   const weekStartDate = value.weekStartDate;
   const weekdayMinutes = value.weekdayMinutes;
+  const weekdayTimes = value.weekdayTimes;
   const weekDate = typeof weekStartDate === "string" ? new Date(weekStartDate + "T12:00:00Z") : null;
   const validWeek = typeof weekStartDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(weekStartDate)
     && weekDate !== null && !Number.isNaN(weekDate.valueOf())
     && weekDate.toISOString().slice(0, 10) === weekStartDate && weekDate.getUTCDay() === 1;
   const validMinutes = Array.isArray(weekdayMinutes) && weekdayMinutes.length === 5
     && weekdayMinutes.every((minutes) => typeof minutes === "number" && Number.isInteger(minutes) && minutes >= 0 && minutes <= 1440);
+  const validClockTime = (time: unknown) => time === "" || (typeof time === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time));
+  const validTimes = weekdayTimes === undefined || (Array.isArray(weekdayTimes) && weekdayTimes.length === 5
+    && weekdayTimes.every((range) => isRecord(range) && validClockTime(range.startTime) && validClockTime(range.endTime)));
   if (typeof employeeName !== "string" || !employeeName.trim() || employeeName.trim().length > 160
     || typeof hourlyRateCents !== "number" || !Number.isSafeInteger(hourlyRateCents) || hourlyRateCents <= 0 || hourlyRateCents > 100_000
-    || !validWeek || !validMinutes) return null;
-  return { employeeName: employeeName.trim(), hourlyRateCents, weekStartDate: weekStartDate as string, minuteValues: weekdayMinutes as number[] };
+    || !validWeek || !validMinutes || !validTimes) return null;
+  const timeRanges = (weekdayTimes ?? Array.from({ length: 5 }, () => ({ startTime: "", endTime: "" }))) as Array<{ startTime: string; endTime: string }>;
+  const timeValues = timeRanges.flatMap(({ startTime, endTime }) => [startTime || null, endTime || null]);
+  const derivedMinutes = timeRanges.map(({ startTime, endTime }) => {
+    if (!startTime || !endTime) return null;
+    const [startHour, startMinute] = startTime.split(":").map(Number);
+    const [endHour, endMinute] = endTime.split(":").map(Number);
+    return (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+  });
+  if (timeRanges.some(({ startTime, endTime }) => startTime && endTime && endTime <= startTime)
+    || derivedMinutes.some((minutes, index) => minutes !== null && minutes !== (weekdayMinutes as number[])[index])) return null;
+  return { employeeName: employeeName.trim(), hourlyRateCents, weekStartDate: weekStartDate as string, minuteValues: weekdayMinutes as number[], timeValues };
 }
 
 function isText(value: unknown): value is string {
@@ -1604,16 +1626,22 @@ const worker = {
         const id = managerTimecardFinalizeMatch[1];
         if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
         try {
-          const draft = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes FROM manager_timecard_drafts WHERE id = ?").bind(id).first<Record<string, unknown>>();
+          const draft = await env.DB.prepare(`SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql} FROM manager_timecard_drafts WHERE id = ?`).bind(id).first<Record<string, unknown>>();
           if (!draft) return json({ error: "Timecard draft not found." }, 404);
+          const incompleteShift = [
+            [draft.monday_start_time, draft.monday_end_time], [draft.tuesday_start_time, draft.tuesday_end_time],
+            [draft.wednesday_start_time, draft.wednesday_end_time], [draft.thursday_start_time, draft.thursday_end_time],
+            [draft.friday_start_time, draft.friday_end_time],
+          ].some(([startTime, endTime]) => Boolean(startTime) !== Boolean(endTime));
+          if (incompleteShift) return json({ error: "Complete both clock times for each shift before finalizing." }, 400);
           const minutes = ["monday_minutes", "tuesday_minutes", "wednesday_minutes", "thursday_minutes", "friday_minutes"]
             .reduce((sum, field) => sum + Number(draft[field] || 0), 0);
           if (minutes <= 0) return json({ error: "Enter at least some hours before finalizing this timecard." }, 400);
           await env.DB.batch([
-            env.DB.prepare("INSERT INTO manager_timecards (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes) SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes FROM manager_timecard_drafts WHERE id = ?").bind(id),
+            env.DB.prepare(`INSERT INTO manager_timecards (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql}) SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql} FROM manager_timecard_drafts WHERE id = ?`).bind(id),
             env.DB.prepare("DELETE FROM manager_timecard_drafts WHERE id = ?").bind(id),
           ]);
-          const timecard = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at FROM manager_timecards WHERE id = ?").bind(id).first<Record<string, unknown>>();
+          const timecard = await env.DB.prepare(`SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql}, created_at FROM manager_timecards WHERE id = ?`).bind(id).first<Record<string, unknown>>();
           if (!timecard) return json({ error: "The timecard could not be finalized." }, 500);
           return json({ success: true, timecard });
         } catch (error) {
@@ -1639,14 +1667,14 @@ const worker = {
           try {
             const body: unknown = await request.json();
             const parsed = parseTimecardDraftInput(body);
-            if (!parsed) return json({ error: "Enter a valid employee name, Monday week start, hourly rate, and up to 24 hours per weekday." }, 400);
-            const result = await env.DB.prepare("UPDATE manager_timecard_drafts SET employee_name = ?, hourly_rate_cents = ?, week_start_date = ?, monday_minutes = ?, tuesday_minutes = ?, wednesday_minutes = ?, thursday_minutes = ?, friday_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-              .bind(parsed.employeeName, parsed.hourlyRateCents, parsed.weekStartDate, ...parsed.minuteValues, id).run();
+            if (!parsed) return json({ error: "Check the employee, Monday week start, hourly rate, and start/end times." }, 400);
+            const result = await env.DB.prepare(`UPDATE manager_timecard_drafts SET employee_name = ?, hourly_rate_cents = ?, week_start_date = ?, monday_minutes = ?, tuesday_minutes = ?, wednesday_minutes = ?, thursday_minutes = ?, friday_minutes = ?, ${timecardClockAssignmentsSql}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+              .bind(parsed.employeeName, parsed.hourlyRateCents, parsed.weekStartDate, ...parsed.minuteValues, ...parsed.timeValues, id).run();
             if (!result.meta.changes) {
               const stillExists = await env.DB.prepare("SELECT id FROM manager_timecard_drafts WHERE id = ?").bind(id).first<{ id: string }>();
               if (!stillExists) return json({ error: "Timecard draft not found." }, 404);
             }
-            const draft = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at, updated_at FROM manager_timecard_drafts WHERE id = ?").bind(id).first<Record<string, unknown>>();
+            const draft = await env.DB.prepare(`SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql}, created_at, updated_at FROM manager_timecard_drafts WHERE id = ?`).bind(id).first<Record<string, unknown>>();
             return json({ success: true, draft });
           } catch (error) {
             console.error("Manager timecard draft could not be updated.", { errorName: error instanceof Error ? error.name : "UnknownError" });
@@ -1658,8 +1686,8 @@ const worker = {
 
       if (request.method === "GET") {
         try {
-          const result = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at FROM manager_timecards ORDER BY week_start_date DESC, created_at DESC").all<Record<string, unknown>>();
-          const drafts = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at, updated_at FROM manager_timecard_drafts ORDER BY updated_at DESC").all<Record<string, unknown>>();
+          const result = await env.DB.prepare(`SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql}, created_at FROM manager_timecards ORDER BY week_start_date DESC, created_at DESC`).all<Record<string, unknown>>();
+          const drafts = await env.DB.prepare(`SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql}, created_at, updated_at FROM manager_timecard_drafts ORDER BY updated_at DESC`).all<Record<string, unknown>>();
           return json({ success: true, timecards: result.results || [], drafts: drafts.results || [] });
         } catch (error) {
           console.error("Manager timecards could not be loaded.", { errorName: error instanceof Error ? error.name : "UnknownError" });
@@ -1671,16 +1699,16 @@ const worker = {
       try {
         const body: unknown = await request.json();
         const parsed = parseTimecardDraftInput(body);
-        if (!parsed) return json({ error: "Enter a valid employee name, Monday week start, hourly rate, and up to 24 hours per weekday." }, 400);
-        const { employeeName: normalizedName, hourlyRateCents, weekStartDate, minuteValues } = parsed;
+        if (!parsed) return json({ error: "Check the employee, Monday week start, hourly rate, and start/end times." }, 400);
+        const { employeeName: normalizedName, hourlyRateCents, weekStartDate, minuteValues, timeValues } = parsed;
         const existing = await env.DB.prepare("SELECT id FROM manager_timecard_drafts WHERE lower(trim(employee_name)) = lower(trim(?)) AND week_start_date = ?").bind(normalizedName, weekStartDate).first<{ id: string }>();
         const id = existing?.id || crypto.randomUUID();
         if (existing) {
-          await env.DB.prepare("UPDATE manager_timecard_drafts SET employee_name = ?, hourly_rate_cents = ?, monday_minutes = ?, tuesday_minutes = ?, wednesday_minutes = ?, thursday_minutes = ?, friday_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(normalizedName, hourlyRateCents, ...minuteValues, id).run();
+          await env.DB.prepare(`UPDATE manager_timecard_drafts SET employee_name = ?, hourly_rate_cents = ?, monday_minutes = ?, tuesday_minutes = ?, wednesday_minutes = ?, thursday_minutes = ?, friday_minutes = ?, ${timecardClockAssignmentsSql}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(normalizedName, hourlyRateCents, ...minuteValues, ...timeValues, id).run();
         } else {
-          await env.DB.prepare("INSERT INTO manager_timecard_drafts (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, normalizedName, hourlyRateCents, weekStartDate, ...minuteValues).run();
+          await env.DB.prepare(`INSERT INTO manager_timecard_drafts (id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql}) VALUES (${Array.from({ length: 19 }, () => "?").join(", ")})`).bind(id, normalizedName, hourlyRateCents, weekStartDate, ...minuteValues, ...timeValues).run();
         }
-        const draft = await env.DB.prepare("SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, created_at, updated_at FROM manager_timecard_drafts WHERE id = ?").bind(id).first<Record<string, unknown>>();
+        const draft = await env.DB.prepare(`SELECT id, employee_name, hourly_rate_cents, week_start_date, monday_minutes, tuesday_minutes, wednesday_minutes, thursday_minutes, friday_minutes, ${timecardClockColumnSql}, created_at, updated_at FROM manager_timecard_drafts WHERE id = ?`).bind(id).first<Record<string, unknown>>();
         return json({ success: true, draft }, existing ? 200 : 201);
       } catch (error) {
         console.error("Manager timecard could not be saved.", { errorName: error instanceof Error ? error.name : "UnknownError" });
