@@ -423,7 +423,7 @@ export default function PayrollTimecards() {
         const response = await fetch("/images/tc-cleaning-logo.png");
         if (response.ok) logoImage = await doc.embedPng(new Uint8Array(await response.arrayBuffer()));
       } catch { /* The text wordmark still identifies the company if the logo cannot load. */ }
-      const addPage = (table: boolean, title = "WEEKLY TIMECARD") => {
+      const addPage = (title = "EMPLOYEE TIME CARD") => {
         const page = doc.addPage([612, 792]);
         page.drawRectangle({ x: 0, y: 648, width: 612, height: 144, color: pdfNavy });
         page.drawRectangle({ x: 0, y: 644, width: 612, height: 4, color: pdfGreen });
@@ -439,73 +439,27 @@ export default function PayrollTimecards() {
         page.drawText("Week of " + safePdfText(dateLong(card.week_start_date)), { x: 338, y: 699, size: 9, font: regular, color: rgb(0.88, 0.91, 0.94) });
         page.drawText("EMPLOYEE", { x: 42, y: 600, size: 8, font: bold, color: pdfMuted });
         page.drawText(safePdfText(card.employee_name).slice(0, 36), { x: 42, y: 579, size: 16, font: bold, color: pdfInk });
-        page.drawText("HOURLY RATE", { x: 360, y: 600, size: 8, font: bold, color: pdfMuted });
-        page.drawText(currency(card.hourly_rate_cents), { x: 360, y: 579, size: 16, font: bold, color: pdfInk });
-        if (table) {
-          page.drawRectangle({ x: 42, y: 516, width: 528, height: 30, color: color("#edf2f5") });
-          page.drawText("DAY", { x: 48, y: 527, size: 8, font: bold, color: pdfMuted });
-          page.drawText("DATE", { x: 92, y: 527, size: 8, font: bold, color: pdfMuted });
-          page.drawText("HOUSE / CLIENT", { x: 145, y: 527, size: 8, font: bold, color: pdfMuted });
-          page.drawText("START", { x: 360, y: 527, size: 8, font: bold, color: pdfMuted });
-          page.drawText("END", { x: 432, y: 527, size: 8, font: bold, color: pdfMuted });
-          page.drawText("HRS", { x: 514, y: 527, size: 8, font: bold, color: pdfMuted });
-        }
         page.drawLine({ start: { x: 42, y: 45 }, end: { x: 570, y: 45 }, thickness: 0.7, color: pdfBorder });
         page.drawText("TC Cleaning Services AZ LLC · (480) 310-8040 · tccleaningaz.com", { x: 42, y: 30, size: 8, font: regular, color: pdfMuted });
         return page;
       };
-      const rows = dayNames.flatMap((day, dayIndex) => {
-        const shifts = shiftsFor(card, day);
-        if (shifts.length) return shifts.map((shift) => ({ day, dayIndex, shift, minutes: shift.startTime && shift.endTime ? shiftMinutes(shift) : 0 }));
-        return [{ day, dayIndex, shift: { house: minutesFor(card, day) > 0 ? "House not specified" : "No visit", startTime: "", endTime: "" }, minutes: minutesFor(card, day) }];
-      });
-      let page = addPage(true);
-      let y = 492;
-      for (const row of rows) {
-        if (y < 66) { page = addPage(true, "WEEKLY TIMECARD · CONTINUED"); y = 492; }
-        page.drawText(row.day, { x: 48, y, size: 8, font: regular, color: pdfInk });
-        page.drawText(dateForDay(card.week_start_date, row.dayIndex), { x: 92, y, size: 8, font: regular, color: pdfInk });
-        page.drawText(safePdfText(row.shift.house || "House name needed").slice(0, 34), { x: 145, y, size: 8, font: regular, color: pdfInk });
-        page.drawText(safePdfText(formatClockTime(row.shift.startTime)), { x: 360, y, size: 8, font: regular, color: pdfInk });
-        page.drawText(safePdfText(formatClockTime(row.shift.endTime)), { x: 432, y, size: 8, font: regular, color: pdfInk });
-        page.drawText(totalHours(row.minutes).toFixed(2), { x: 514, y, size: 8, font: regular, color: pdfInk });
-        page.drawLine({ start: { x: 42, y: y - 7 }, end: { x: 570, y: y - 7 }, thickness: 0.5, color: pdfBorder });
-        y -= 19;
-      }
+      const summaryPage = addPage();
       const minutes = totalMinutes(card);
-      const isOver = minutes > 40 * 60;
-      let summaryPage = addPage(false, "HOURS BY HOUSE");
-      let summaryY = 548;
-      summaryPage.drawText("DAILY HOURS", { x: 54, y: summaryY, size: 10, font: bold, color: pdfGreen });
-      summaryY -= 25;
+      summaryPage.drawRectangle({ x: 42, y: 516, width: 528, height: 30, color: color("#edf2f5") });
+      summaryPage.drawText("DAY", { x: 54, y: 527, size: 9, font: bold, color: pdfMuted });
+      summaryPage.drawText("DATE", { x: 210, y: 527, size: 9, font: bold, color: pdfMuted });
+      summaryPage.drawText("HOURS", { x: 494, y: 527, size: 9, font: bold, color: pdfMuted });
+      let summaryY = 492;
       dayNames.forEach((day, index) => {
-        summaryPage.drawText(day + " · " + dateForDay(card.week_start_date, index), { x: 54, y: summaryY, size: 10, font: regular, color: pdfInk });
-        summaryPage.drawText(totalHours(minutesFor(card, day)).toFixed(2) + " hrs", { x: 465, y: summaryY, size: 10, font: bold, color: pdfInk });
-        summaryY -= 18;
-      });
-      summaryY -= 10;
-      summaryPage.drawText("HOURS BY HOUSE", { x: 54, y: summaryY, size: 10, font: bold, color: pdfGreen });
-      summaryY -= 24;
-      for (const house of houseTotalsFor(card)) {
-        if (summaryY < 84) { summaryPage = addPage(false, "HOURS BY HOUSE · CONTINUED"); summaryY = 548; }
-        summaryPage.drawText(safePdfText(house.label).slice(0, 55), { x: 54, y: summaryY, size: 10, font: regular, color: pdfInk });
-        summaryPage.drawText(totalHours(house.minutes).toFixed(2) + " hrs", { x: 465, y: summaryY, size: 10, font: bold, color: pdfInk });
-        summaryPage.drawLine({ start: { x: 54, y: summaryY - 6 }, end: { x: 558, y: summaryY - 6 }, thickness: 0.4, color: pdfBorder });
-        summaryY -= 18;
-      }
-      if (summaryY < 110) { summaryPage = addPage(false, "WEEKLY PAY TOTALS"); summaryY = 548; }
-      summaryPage.drawText("TOTAL HOURS", { x: 54, y: summaryY, size: 10, font: bold, color: pdfMuted });
-      summaryPage.drawText(totalHours(minutes).toFixed(2), { x: 465, y: summaryY, size: 13, font: bold, color: pdfInk });
-      summaryY -= 32;
-      summaryPage.drawText("STRAIGHT-TIME GROSS ESTIMATE", { x: 54, y: summaryY, size: 10, font: bold, color: pdfMuted });
-      summaryPage.drawText(currency(grossCents(card.hourly_rate_cents, minutes)), { x: 420, y: summaryY, size: 14, font: bold, color: pdfInk });
-      if (isOver) {
+        summaryPage.drawText(day, { x: 54, y: summaryY, size: 11, font: regular, color: pdfInk });
+        summaryPage.drawText(dateForDay(card.week_start_date, index), { x: 210, y: summaryY, size: 11, font: regular, color: pdfInk });
+        summaryPage.drawText(totalHours(minutesFor(card, day)).toFixed(2) + " hrs", { x: 486, y: summaryY, size: 11, font: bold, color: pdfInk });
+        summaryPage.drawLine({ start: { x: 54, y: summaryY - 7 }, end: { x: 558, y: summaryY - 7 }, thickness: 0.5, color: pdfBorder });
         summaryY -= 28;
-        summaryPage.drawRectangle({ x: 42, y: summaryY - 10, width: 528, height: 38, color: color("#fff4dc") });
-        summaryPage.drawText("Over 40 hours entered. Review overtime before using this estimate for payroll.", { x: 54, y: summaryY + 4, size: 8, font: bold, color: color("#775715") });
-      }
-      summaryPage.drawText("Hours are elapsed time from start to end and include breaks. Unpaid breaks are not subtracted.", { x: 54, y: Math.max(66, summaryY - (isOver ? 40 : 22)), size: 8, font: regular, color: pdfMuted });
-      summaryPage.drawText("Timecard only; excludes overtime premiums, bonuses, taxes, deductions, and withholding.", { x: 54, y: Math.max(52, summaryY - (isOver ? 54 : 36)), size: 8, font: regular, color: pdfMuted });
+      });
+      summaryY -= 8;
+      summaryPage.drawText("TOTAL HOURS", { x: 54, y: summaryY, size: 12, font: bold, color: pdfGreen });
+      summaryPage.drawText(totalHours(minutes).toFixed(2) + " hrs", { x: 465, y: summaryY, size: 14, font: bold, color: pdfInk });
       const bytes = await doc.save();
       const pdfBuffer = new ArrayBuffer(bytes.byteLength);
       new Uint8Array(pdfBuffer).set(bytes);
