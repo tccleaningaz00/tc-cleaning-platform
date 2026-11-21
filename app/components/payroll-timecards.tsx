@@ -459,7 +459,9 @@ export default function PayrollTimecards() {
       });
       summaryY -= 8;
       summaryPage.drawText("TOTAL HOURS", { x: 54, y: summaryY, size: 12, font: bold, color: pdfGreen });
-      summaryPage.drawText(totalHours(minutes).toFixed(2) + " hrs", { x: 465, y: summaryY, size: 14, font: bold, color: pdfInk });
+      summaryPage.drawText(totalHours(minutes).toFixed(2) + " hrs", { x: 290, y: summaryY, size: 14, font: bold, color: pdfInk });
+      summaryPage.drawText("TOTAL PAY", { x: 54, y: summaryY - 30, size: 12, font: bold, color: pdfGreen });
+      summaryPage.drawText(currency(grossCents(card.hourly_rate_cents, minutes)), { x: 440, y: summaryY - 30, size: 16, font: bold, color: pdfInk });
       const bytes = await doc.save();
       const pdfBuffer = new ArrayBuffer(bytes.byteLength);
       new Uint8Array(pdfBuffer).set(bytes);
